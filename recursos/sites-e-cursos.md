@@ -7,12 +7,12 @@
 ## Cursos estruturados
 
 ### Fundamentos
-| Curso | Onde | Nota |
-|---|---|---|
-| 🆓 **MIT 18.06 — Linear Algebra** (Gilbert Strang) | MIT OpenCourseWare | Aulas completas. O curso de álgebra linear. |
-| 🆓 **Machine Learning Specialization** (Andrew Ng) | Coursera (audit grátis) | A porta de entrada canônica do M4. |
-| 🆓 **Statistical Rethinking** (McElreath) | YouTube + repositório | Curso completo em vídeo, acompanha o livro. |
-| 🆓 **StatQuest — Statistics Fundamentals** | YouTube | Playlist, não curso formal. Ver [`youtube.md`](youtube.md). |
+| Curso                                              | Onde                    | Nota                                                        |
+| -------------------------------------------------- | ----------------------- | ----------------------------------------------------------- |
+| 🆓 **MIT 18.06 — Linear Algebra** (Gilbert Strang) | MIT OpenCourseWare      | Aulas completas. O curso de álgebra linear.                 |
+| 🆓 **Machine Learning Specialization** (Andrew Ng) | Coursera (audit grátis) | A porta de entrada canônica do M4.                          |
+| 🆓 **Statistical Rethinking** (McElreath)          | YouTube + repositório   | Curso completo em vídeo, acompanha o livro.                 |
+| 🆓 **StatQuest — Statistics Fundamentals**         | YouTube                 | Playlist, não curso formal. Ver [`youtube.md`](youtube.md). |
 
 ### Deep Learning
 | Curso | Onde | Nota |

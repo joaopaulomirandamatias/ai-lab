@@ -1,13 +1,18 @@
 # Projetos
 
-Um projeto longitudinal, não trinta desconectados.
+O projeto longitudinal vive em **repositório próprio**:
 
-```
-projetos/
-└── ai-systems-lab/     # criar no primeiro dia de código do M1
-```
+> **`ai-systems-lab`** — local: `~/dev/ai-systems-lab`
 
-O **AI Systems Laboratory** evolui M1 → M18, ganhando uma camada por mês:
+Este repositório (`ai-lab`) guarda o **estudo**: plano, notas, fichamentos, material.
+O `ai-systems-lab` guarda o **sistema**: o que roda. A divisão é deliberada — misturar
+histórico de anotação com histórico de código torna os dois ilegíveis.
+
+---
+
+## O AI Systems Laboratory
+
+Um projeto, não trinta desconectados. Ele evolui M1 → M18, ganhando uma camada por mês:
 
 ```
 matemática → gradient descent → estatística → ML → Neural Network → PyTorch
@@ -18,11 +23,23 @@ matemática → gradient descent → estatística → ML → Neural Network → 
 Ao terminar, o repositório é **evidência pública da evolução** — não uma lista de cursos
 concluídos.
 
+### Camadas
+
+| Camada | Nasce em | Papel |
+|---|---|---|
+| `core/` | M1–M8 | Matemática, treino, modelo |
+| `retrieval/` | M11 | Embeddings, busca híbrida, reranking, grafo |
+| `agents/` | M12 | Loop, tools, state, memória, guardrails |
+| `protocols/` | M13 | MCP Host/Client/Server, JSON-RPC, A2A |
+| `governance/` | M15 | Policy engine, HIL, evidence, audit trail |
+| `evaluation/` | M11+ | Conjuntos de avaliação, métricas, harness |
+| `experiments/` | contínuo | Um diretório por experimento |
+
 ---
 
 ## Os 18 projetos
 
-A lista completa, com o **critério de pronto** de cada um, está em
+Lista completa com **critério de pronto** de cada um:
 [`recursos/projetos.md`](../recursos/projetos.md).
 
 Os cinco que mais importam:
@@ -37,38 +54,13 @@ Os cinco que mais importam:
 
 ---
 
-## Como estruturar
+## O que fica aqui
 
-Sugestão para `ai-systems-lab/`, crescendo por camada e não por mês:
+Esta pasta guarda o que é **sobre** os projetos, não os projetos:
 
-```
-ai-systems-lab/
-├── README.md           # o que o sistema faz HOJE — atualizado a cada camada
-├── CHANGELOG.md        # uma entrada por mês: o que foi adicionado e por quê
-├── core/               # matemática, treino, modelo
-├── retrieval/          # embeddings, RAG, grafo
-├── agents/             # loop, tools, state, memória
-├── protocols/          # MCP client/server, A2A
-├── governance/         # policy engine, HIL, evidence, audit
-├── evaluation/         # conjuntos de avaliação, métricas, harness
-└── experiments/        # cada um a partir de _templates/experimento/
-```
+- notas de decisão que ainda não viraram código;
+- rascunhos de arquitetura;
+- ligações entre um projeto e o que você leu em [`14-papers/`](../14-papers/).
 
-O `CHANGELOG.md` é o que transforma o repositório em narrativa. Daqui a um ano, ele é a
-diferença entre "tenho um projeto" e "consigo mostrar como cheguei aqui" — e é o que se
-lê numa entrevista ou numa banca.
-
----
-
-## Uma decisão que vale tomar cedo
-
-Este repositório (`ai-lab`) é do **estudo** — notas, fichamentos, plano. O
-`ai-systems-lab` é o **sistema**. Vale considerar mantê-lo como repositório Git próprio,
-não como subpasta:
-
-- histórico de commits limpo, que mostra a evolução do sistema sem ruído de anotação;
-- pode ser público desde cedo sem expor notas pessoais;
-- CI, testes e releases fazem sentido nele e não fazem aqui.
-
-Se preferir simplicidade agora, comece como subpasta — separar depois é um `git filter-repo`,
-não um problema. Só evite o inverso: começar público e ter que limpar histórico.
+O `CHANGELOG.md` do `ai-systems-lab` é o registro oficial de o que foi construído e
+por quê — uma entrada por mês. É o que se lê numa entrevista ou numa banca.
