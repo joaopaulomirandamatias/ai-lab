@@ -10,12 +10,12 @@ Marcados com ⭐ a **fonte principal** sugerida para cada trilha — os outros s
 
 ## Matemática — M1–M2 · [`01-math/`](../01-math/)
 
-| Livro | Autor | Nota |
-|---|---|---|
+| Livro                                    | Autor                   | Nota                                                                                                                                                                               |
+| ---------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ⭐🆓 **Mathematics for Machine Learning** | Deisenroth, Faisal, Ong | `mml-book.github.io` · Escrito para quem vai fazer ML, não para matemáticos. Cobre exatamente o necessário: álgebra linear, cálculo vetorial, probabilidade, otimização, PCA, SVD. |
-| 🆓 **The Matrix Cookbook** | Petersen & Pedersen | Referência de identidades matriciais. Não se lê — se consulta ao derivar backprop. |
-| **Introduction to Linear Algebra** | Gilbert Strang | Companheiro do MIT 18.06. Use se o MML ficar seco demais. |
-| 🆓 **Linear Algebra Done Right** | Sheldon Axler | Mais abstrato e elegante. Opcional — só se você gostar de matemática por si. |
+| 🆓 **The Matrix Cookbook**               | Petersen & Pedersen     | Referência de identidades matriciais. Não se lê — se consulta ao derivar backprop.                                                                                                 |
+| **Introduction to Linear Algebra**       | Gilbert Strang          | Companheiro do MIT 18.06. Use se o MML ficar seco demais.                                                                                                                          |
+| 🆓 **Linear Algebra Done Right**         | Sheldon Axler           | Mais abstrato e elegante. Opcional — só se você gostar de matemática por si.                                                                                                       |
 
 **Atalho honesto:** para o Gate I, MML capítulos 2–5 + a série do 3Blue1Brown já bastam.
 
