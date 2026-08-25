@@ -74,3 +74,18 @@ construir o sistema.** Conjunto criado depois é construído, inconscientemente,
 sistema passar. É a versão em avaliação do mesmo problema que
 [`_templates/experimento/`](../_templates/experimento/) evita ao exigir a hipótese antes
 do resultado.
+
+---
+
+## Clínica de falhas em RAG
+
+A taxonomia P01–P12 do exemplo
+[RAG Failure Diagnostics Clinic](https://github.com/Shubhamsaboo/awesome-llm-apps/tree/main/rag_tutorials/rag_failure_diagnostics_clinic)
+é uma referência didática útil para criar casos de regressão: grounding drift, chunking,
+index staleness, router misalignment, tool misuse, vazamento de memória, blind spots de
+avaliação e interferência multiagente.
+
+Ela não substitui Ragas, DeepEval, avaliação humana ou desenho experimental. Para cada
+classe, crie incidente sintético, diagnóstico esperado, contraprova e correção mínima.
+Registre versão e limitações conforme
+[repositórios open source curados](../recursos/repositorios-open-source-curados.md).

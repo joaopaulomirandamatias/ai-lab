@@ -68,3 +68,18 @@ pergunta. Quem enxerga isso consegue propor coisas que ninguém que só leu a sp
 Daí sai a ponte para [`11-interop-semantica/`](../11-interop-semantica/) e, no M15, para
 o **MCP Gateway** com Policy Engine do capstone: o ponto onde interoperabilidade encontra
 governança. É exatamente aí que mora a sua pergunta de pesquisa.
+
+---
+
+## Catálogos para o teste de interoperabilidade
+
+Use [Awesome MCP Servers](https://github.com/punkpeye/awesome-mcp-servers) e
+[Awesome MCP Clients](https://github.com/punkpeye/awesome-mcp-clients) somente para
+descobrir implementações independentes. A especificação oficial continua sendo a fonte
+normativa, e cada projeto descoberto deve passar por verificação de licença, atividade,
+autenticação e segurança.
+
+No P13, registre uma matriz com versão MCP, transporte, primitivas, autenticação,
+capability discovery e resultado cruzado. Execute servidores comunitários em sandbox,
+com filesystem e rede mínimos. O roteiro detalhado está em
+[repositórios open source curados](../recursos/repositorios-open-source-curados.md).

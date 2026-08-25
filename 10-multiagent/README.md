@@ -76,3 +76,17 @@ contamina os demais.
 Se você medir isso direito, com baseline honesto e variância reportada, você tem o
 primeiro resultado original do seu M18 — dez meses antes do prazo. Escreva a hipótese
 antes de rodar, no formato de [`_templates/experimento/`](../_templates/experimento/).
+
+---
+
+## Baselines externos para o experimento
+
+O [Awesome LLM Apps](https://github.com/Shubhamsaboo/awesome-llm-apps) contém dois
+baselines didáticos úteis: **Multi-MCP Agent Router** e
+**Trust-Gated Multi-Agent Research Team**. Reproduza-os somente depois de congelar commit,
+configuração e conjunto de avaliação.
+
+O roteador deve ser comparado com policy fail-closed e mínimo privilégio. A cadeia
+SHA-256 do trust gate mede integridade encadeada, não identidade, assinatura, imutabilidade
+ou correção semântica. Essas diferenças devem aparecer nas métricas e nas ameaças à
+validade. Veja [repositórios open source curados](../recursos/repositorios-open-source-curados.md).
