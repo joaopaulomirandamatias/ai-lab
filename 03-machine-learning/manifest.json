@@ -1,0 +1,32 @@
+{
+  "module": "03-machine-learning",
+  "month": "M4",
+  "lesson_count": 24,
+  "gate": "Gate II",
+  "paths": [
+    "03-machine-learning/aulas/01-fundamentos-machine-learning.md",
+    "03-machine-learning/aulas/02-framing-dataset-split-baseline.md",
+    "03-machine-learning/aulas/03-preprocessamento-pipelines-leakage.md",
+    "03-machine-learning/aulas/04-regressao-linear-minimos-quadrados.md",
+    "03-machine-learning/aulas/05-regularizacao-ridge-lasso-elastic-net.md",
+    "03-machine-learning/aulas/06-regressao-logistica-classificacao-probabilistica.md",
+    "03-machine-learning/aulas/07-knn-distancias-dimensionalidade.md",
+    "03-machine-learning/aulas/08-naive-bayes-probabilidade-condicional.md",
+    "03-machine-learning/aulas/09-arvores-decisao.md",
+    "03-machine-learning/aulas/10-random-forest-bagging.md",
+    "03-machine-learning/aulas/11-gradient-boosting.md",
+    "03-machine-learning/aulas/12-svm-kernels.md",
+    "03-machine-learning/aulas/13-metricas-regressao.md",
+    "03-machine-learning/aulas/14-metricas-classificacao.md",
+    "03-machine-learning/aulas/15-roc-pr-threshold-calibracao.md",
+    "03-machine-learning/aulas/16-classes-desbalanceadas.md",
+    "03-machine-learning/aulas/17-cross-validation.md",
+    "03-machine-learning/aulas/18-hyperparameter-tuning.md",
+    "03-machine-learning/aulas/19-feature-engineering-selection.md",
+    "03-machine-learning/aulas/20-interpretabilidade-modelos.md",
+    "03-machine-learning/aulas/21-clustering-kmeans-hierarquico-dbscan.md",
+    "03-machine-learning/aulas/22-reducao-dimensionalidade-ml.md",
+    "03-machine-learning/aulas/23-reprodutibilidade-provenance-leakage.md",
+    "03-machine-learning/aulas/24-gate-ii-experimento-ml-classico.md"
+  ]
+}

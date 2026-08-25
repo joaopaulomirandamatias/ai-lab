@@ -1,63 +1,116 @@
-# 03 · Machine Learning clássico
+# 03 · Machine Learning clássico — M4
 
-**Mês M4** · Roadmap: Nível 3 · **🔶 Gate II** no fim do mês
+**Mês M4** · Roadmap: Nível 3 · **🔶 Gate II** no fim do módulo
 
 > Aqui começa a formação propriamente dita em IA.
 
----
+**Objetivo do módulo:** construir, avaliar e comparar modelos clássicos com protocolo experimental honesto, baseline explícito, cross-validation e **zero data leakage**.
 
-## O que dominar
+## Gate II
 
-**Supervisionado** — regressão linear e logística, k-NN, Naive Bayes, Decision Trees,
-Random Forest, Gradient Boosting, XGBoost, LightGBM, SVM.
+O módulo termina quando você consegue entregar um experimento reproduzível contendo:
 
-**Não supervisionado** — K-Means, DBSCAN, clustering hierárquico, PCA, redução de
-dimensionalidade, detecção de anomalias.
+- pergunta e target claramente definidos;
+- unidade de análise;
+- baseline;
+- split correto para a estrutura dos dados;
+- preprocessing dentro de `Pipeline`;
+- cross-validation;
+- tuning sem usar o teste;
+- comparação de modelos;
+- métricas primária/secundárias justificadas;
+- análise de erros;
+- provenance/lineage;
+- limitações;
+- avaliação final única no conjunto de teste.
 
-**Conceitos fundamentais** (dominar profundamente, não reconhecer) — overfitting,
-underfitting, bias, variance, regularização L1/L2, hiperparâmetros, cross-validation,
-grid search, random search, otimização bayesiana.
+## Sequência de 24 aulas
 
-**Métricas**
-- Classificação: accuracy, precision, recall, F1, ROC, AUC, matriz de confusão
-- Regressão: MAE, MSE, RMSE, R²
+| Aula | Tema |
+|---:|---|
+| 01 | [Fundamentos de Machine Learning: problemas, paradigmas e generalização](./aulas/01-fundamentos-machine-learning.md) |
+| 02 | [Do problema ao experimento: features, target, splits e baseline](./aulas/02-framing-dataset-split-baseline.md) |
+| 03 | [Pré-processamento, pipelines e data leakage](./aulas/03-preprocessamento-pipelines-leakage.md) |
+| 04 | [Regressão linear e mínimos quadrados](./aulas/04-regressao-linear-minimos-quadrados.md) |
+| 05 | [Regularização: Ridge, Lasso e Elastic Net](./aulas/05-regularizacao-ridge-lasso-elastic-net.md) |
+| 06 | [Regressão logística e classificação probabilística](./aulas/06-regressao-logistica-classificacao-probabilistica.md) |
+| 07 | [K-Nearest Neighbors: distâncias e maldição da dimensionalidade](./aulas/07-knn-distancias-dimensionalidade.md) |
+| 08 | [Naive Bayes: probabilidade condicional aplicada à classificação](./aulas/08-naive-bayes-probabilidade-condicional.md) |
+| 09 | [Árvores de decisão: partições, impureza e interpretabilidade](./aulas/09-arvores-decisao.md) |
+| 10 | [Bagging e Random Forest: reduzindo variância com ensembles](./aulas/10-random-forest-bagging.md) |
+| 11 | [Boosting e Gradient Boosting: aprendendo com os erros anteriores](./aulas/11-gradient-boosting.md) |
+| 12 | [Support Vector Machines: margem máxima e kernels](./aulas/12-svm-kernels.md) |
+| 13 | [Métricas de regressão: MAE, MSE, RMSE, R² e erro relativo](./aulas/13-metricas-regressao.md) |
+| 14 | [Métricas de classificação: matriz de confusão, precision, recall e F1](./aulas/14-metricas-classificacao.md) |
+| 15 | [ROC, Precision-Recall, thresholds e calibração](./aulas/15-roc-pr-threshold-calibracao.md) |
+| 16 | [Classes desbalanceadas: amostragem, pesos e avaliação correta](./aulas/16-classes-desbalanceadas.md) |
+| 17 | [Cross-validation: estimando generalização sem desperdiçar dados](./aulas/17-cross-validation.md) |
+| 18 | [Hyperparameter tuning: Grid Search, Random Search e validação aninhada](./aulas/18-hyperparameter-tuning.md) |
+| 19 | [Feature engineering e seleção de variáveis](./aulas/19-feature-engineering-selection.md) |
+| 20 | [Interpretabilidade: coeficientes, permutation importance e SHAP](./aulas/20-interpretabilidade-modelos.md) |
+| 21 | [Clustering: K-Means, hierárquico e DBSCAN](./aulas/21-clustering-kmeans-hierarquico-dbscan.md) |
+| 22 | [Redução de dimensionalidade em ML: PCA, t-SNE e UMAP com responsabilidade](./aulas/22-reducao-dimensionalidade-ml.md) |
+| 23 | [Reprodutibilidade, provenance, pipelines e zero data leakage](./aulas/23-reprodutibilidade-provenance-leakage.md) |
+| 24 | [Gate II — Experimento completo de Machine Learning clássico](./aulas/24-gate-ii-experimento-ml-classico.md) |
 
----
+## Blocos
 
-## Fonte principal
+### Bloco A — Fundamentos e modelos lineares · 01–06
+Problema, desenho experimental, pipelines, regressão, regularização e classificação probabilística.
 
-⭐ **Hands-On Machine Learning** — Aurélien Géron, Parte 1. O mais prático que existe.
+### Bloco B — Algoritmos clássicos · 07–12
+KNN, Naive Bayes, árvores, Random Forest, boosting e SVM.
 
-Teoria de apoio: ISLP (que você já usou no M3) · ESL para consulta.
-Destravar: StatQuest · Mario Filho (em português, especialmente sobre validação).
+### Bloco C — Avaliação e seleção · 13–18
+Métricas, thresholds, calibração, desbalanceamento, cross-validation e tuning.
 
----
+### Bloco D — Representação, interpretação e ciência · 19–24
+Feature engineering, interpretabilidade, clustering, redução dimensional, reprodutibilidade e Gate II.
 
-## Projeto
+## Referências-base
 
-**P4 — Pipeline de ML sem leakage (M4)** 🔶 **Gate II**
+1. James, Witten, Hastie, Tibshirani, Taylor — **An Introduction to Statistical Learning with Applications in Python (ISLP)**.
+2. Hastie, Tibshirani, Friedman — **The Elements of Statistical Learning**.
+3. Murphy — **Probabilistic Machine Learning: An Introduction**.
+4. scikit-learn — **User Guide** e seção **Common pitfalls and recommended practices**.
+5. Géron — **Hands-On Machine Learning with Scikit-Learn, Keras & TensorFlow**.
+6. Papers clássicos indicados em cada aula: CART, Random Forests, Gradient Boosting, SVM, SMOTE, SHAP, Random Search etc.
 
-Classificação ou regressão completa: split → baseline → modelo → validação cruzada →
-métricas.
+## Fonte principal e apoio
 
-*Pronto quando* você consegue apontar três lugares onde havia risco de data leakage e
-mostrar no código como cada um foi eliminado.
+⭐ **Hands-On Machine Learning** — Aurélien Géron, Parte 1, como referência prática.
 
----
+Use **ISLP** para consolidar teoria e prática, **The Elements of Statistical Learning**
+para aprofundamento e **Probabilistic Machine Learning** para a visão probabilística.
+StatQuest e materiais técnicos em português podem servir para destravar a intuição, mas
+não substituem as referências acadêmicas e a documentação oficial.
 
 ## O que realmente se aprende aqui
 
-Não são os algoritmos — XGBoost você aprende a usar em uma tarde. É **metodologia
-experimental**, e ela vale para o resto do roadmap inteiro:
+Não são apenas algoritmos. O núcleo do M4 é **metodologia experimental**, que será
+reutilizada ao comparar RAG no M11 e arquiteturas multiagentes no M14:
 
-- **Baseline primeiro.** Um modelo que não bate a média ou a classe majoritária não é
-  um modelo, é um gerador de números.
-- **A métrica é escolhida pelo problema.** Accuracy em dataset desbalanceado é
-  desinformação. Escolher métrica por hábito é o erro mais caro do M4.
-- **Data leakage é silencioso.** Ele não dá erro — dá resultado bom demais. Normalizar
-  antes do split, usar feature que só existe depois do evento, deixar duplicata cruzar
-  o split. Você vai cometer os três pelo menos uma vez.
+- **Baseline primeiro.** Um modelo que não supera uma referência simples ainda não
+  demonstrou valor.
+- **A métrica vem do problema.** Accuracy em dataset desbalanceado pode esconder um
+  sistema inútil.
+- **Data leakage é silencioso.** Normalizar antes do split, usar informação futura ou
+  deixar duplicatas atravessarem os conjuntos produz resultados bons demais e inválidos.
+- **Reprodutibilidade é parte do resultado.** Seeds, versões, configuração e lineage
+  devem acompanhar cada experimento.
 
-Essa disciplina é literalmente a mesma que o M11 vai cobrar ao comparar RAG, e a mesma
-que o M14 vai cobrar ao comparar 1 vs 3 vs 5 agentes. Aprenda direito agora e economize
-duas vezes.
+## Projeto do módulo
+
+**P4 — Pipeline de ML sem leakage (M4)** 🔶 **Gate II**
+
+Classificação ou regressão completa: split → baseline → preprocessing → modelo →
+validação cruzada → métricas → análise de erros → avaliação final no teste.
+
+*Pronto quando* você consegue apontar pelo menos três riscos de data leakage e mostrar
+no código e no protocolo como cada um foi eliminado.
+
+## Regra do módulo
+
+> Um modelo com métrica alta e protocolo contaminado vale menos que um baseline simples medido corretamente.
+
+O objetivo não é colecionar algoritmos; é aprender a produzir **evidência preditiva confiável**.
