@@ -65,3 +65,15 @@ onde.
 
 É o mesmo princípio que o M12 aplica com agentes: construir do zero antes de usar
 framework. O roadmap repete essa lição de propósito.
+
+---
+
+## Trilhas mensais executáveis
+
+- **M5 — Redes neurais do zero:** [sequência didática e aulas](./m5-redes-neurais-do-zero/README.md). NumPy puro, derivadas explícitas e nenhuma dependência de autograd.
+- **M6 — PyTorch:** será iniciado somente depois que o P5 passar pelo critério de domínio.
+- **M7 — Arquiteturas:** CNN, RNN/LSTM e seq2seq sobre a base matemática e operacional construída em M5–M6.
+
+No M5, “funcionou” não significa apenas que a loss caiu. Cada parâmetro atualizado deve
+ter uma derivada rastreável no grafo computacional, conferida numericamente por diferenças
+finitas e explicada pelo aluno.
