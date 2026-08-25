@@ -39,6 +39,18 @@ One-hot encoding é apropriado para categorias nominais em muitos modelos. Ordin
 
 Pipeline encapsula pré-processamento e modelo numa única unidade, tornando cross-validation e tuning muito mais seguros.
 
+## Aprofundamento — transformadores também aprendem parâmetros
+
+Um scaler, imputador, encoder orientado por frequência ou seletor de features não é uma função fixa: ele possui estado aprendido. Para uma transformação $T_{\hat\phi}$,
+
+$$
+\hat\phi=fit(X_{train}),\qquad Z_{train}=T_{\hat\phi}(X_{train}),\qquad Z_{test}=T_{\hat\phi}(X_{test}).
+$$
+
+O erro metodológico é estimar $\hat\phi$ com treino e teste. A mesma regra vale dentro de cross-validation: cada fold precisa ajustar seu próprio preprocessing apenas na parte de treino. `Pipeline` automatiza essa fronteira e permite tunar transformação e modelo como uma unidade.
+
+Leakage pode ser **estatístico** (média global), **temporal** (informação futura), **por target** (encoding ou seleção usando $y$ fora do fold), **por duplicação** ou **por agregação**. Uma pipeline resolve a primeira classe, mas não corrige um dataset cuja feature já contém o futuro.
+
 ## 3. Equação para guardar
 
 $$
@@ -50,6 +62,12 @@ Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é 
 ## 4. Exemplo mental
 
 Num dataset com idade, renda e estado civil, idade/renda podem ser imputadas e padronizadas; estado civil pode receber one-hot encoding. Tudo é ajustado apenas com X_train.
+
+## Exemplo numérico resolvido
+
+Treino: $[1,2,3]$; teste: $[100]$. O scaler correto aprende $\mu_{train}=2$ e $\sigma_{train}\approx0{,}816$. Assim, o valor de teste vira aproximadamente $120{,}0$ desvios do centro de treino — um caso extremo real.
+
+Se o scaler for ajustado em todos os dados, a média vira $26{,}5$ e o desvio cresce para cerca de $42{,}44$; o teste vira apenas $1{,}73$. A informação do próprio teste o tornou artificialmente menos extremo. A métrica resultante é otimista porque o preprocessing conheceu a distribuição que deveria permanecer invisível.
 
 ## 5. Laboratório em Python / scikit-learn
 
@@ -86,6 +104,59 @@ model = Pipeline([
 
 O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
 
+### Investigação adicional
+
+Construa duas avaliações: (A) scaler e seleção antes do CV; (B) ambos dentro de `Pipeline`. Use dados sintéticos com 1.000 features aleatórias e poucas amostras. Compare a diferença e explique por que selecionar features no dataset inteiro consegue “descobrir” correlações espúrias do fold de validação.
+
+## Laboratório guiado completo
+
+O exemplo usa dados mistos, missing values e CV. Todo estado aprendido permanece dentro do pipeline.
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+rng = np.random.default_rng(42)
+df = pd.DataFrame({
+    "idade": rng.normal(40, 12, 600),
+    "renda": rng.lognormal(8.5, 0.5, 600),
+    "estado": rng.choice(["AP", "SP", "PA"], 600),
+})
+df.loc[rng.choice(600, 50, replace=False), "renda"] = np.nan
+y = ((df["idade"] > 45) | (df["estado"] == "SP")).astype(int)
+
+num = Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())])
+cat = Pipeline([("impute", SimpleImputer(strategy="most_frequent")),
+                ("onehot", OneHotEncoder(handle_unknown="ignore"))])
+prep = ColumnTransformer([("num", num, ["idade", "renda"]), ("cat", cat, ["estado"])])
+pipe = Pipeline([("prep", prep), ("model", LogisticRegression(max_iter=2000))])
+cv = StratifiedKFold(5, shuffle=True, random_state=42)
+scores = cross_validate(pipe, df, y, cv=cv, scoring=["roc_auc", "average_precision"])
+print({k: (v.mean(), v.std()) for k, v in scores.items() if k.startswith("test_")})
+```
+
+**Entregue:** versão correta; uma versão com leakage intencional; diferença entre elas; diagrama de quais operações executam `fit` em cada fold.
+
+### Protocolo investigativo obrigatório
+
+O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+
+1. escreva uma hipótese antes de rodar o experimento;
+2. mantenha um baseline e altere uma decisão por vez;
+3. use o mesmo split ou os mesmos folds nas comparações;
+4. reporte a distribuição das métricas, não apenas o melhor número;
+5. inspecione pelo menos cinco erros ou casos extremos;
+6. registre seed, versões, hiperparâmetros e tempo de execução;
+7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+
+Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+
 ## 6. Conexão com o AI Systems Laboratory
 
 Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
@@ -112,6 +183,34 @@ Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
 3. Dê três exemplos de leakage temporal.
 4. Explique por que pipeline é importante durante cross-validation.
 
+## Exercícios de aprofundamento e rubrica
+
+### Nível A — reconstrução conceitual
+
+Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+
+### Nível B — cálculo e implementação
+
+Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+
+### Nível C — contraprova experimental
+
+Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+
+### Nível D — transferência para sistema real
+
+Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+
+### Rubrica de 0 a 4
+
+- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
+- **1 — reprodução:** executa exemplo pronto;
+- **2 — compreensão:** deriva/calcula e interpreta o resultado;
+- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
+- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+
+**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+
 ## 9. Critério de domínio
 
 Você domina esta aula quando consegue:
@@ -126,6 +225,13 @@ Você domina esta aula quando consegue:
 - Kaufman et al. — Leakage in Data Mining.
 - ISLP, capítulos de model assessment e preprocessing.
 - Géron — Hands-On Machine Learning, capítulos de end-to-end ML projects.
+
+## Leitura orientada e fontes verificadas
+
+- scikit-learn — [Common pitfalls and recommended practices](https://scikit-learn.org/stable/common_pitfalls.html).
+- scikit-learn — [Pipelines and composite estimators](https://scikit-learn.org/stable/modules/compose.html).
+- scikit-learn — [Preprocessing data](https://scikit-learn.org/stable/modules/preprocessing.html).
+- James et al. — [ISLP](https://www.statlearning.com/), laboratórios de preprocessing e resampling.
 
 ## Próxima aula
 
