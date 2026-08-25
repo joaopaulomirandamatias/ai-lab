@@ -1,6 +1,6 @@
 # Recursos
 
-Material de estudo curado. Quatro listas, cada uma com um papel diferente.
+Material de estudo curado. Listas complementares, cada uma com um papel diferente.
 
 | Arquivo | O que é | Quando abrir |
 |---|---|---|
@@ -9,6 +9,7 @@ Material de estudo curado. Quatro listas, cada uma com um papel diferente.
 | [`youtube.md`](youtube.md) | Canais e playlists, com mapa mês a mês | Quando um conceito não entra pelo texto |
 | [`papers-essenciais.md`](papers-essenciais.md) | ~70 papers organizados por tema, com ordem de leitura | M16 em diante — e pontualmente antes disso |
 | [`projetos.md`](projetos.md) | Os 18 projetos, cada um com **critério de pronto** | Toda vez que um mês começa |
+| [`repositorios-open-source-curados.md`](repositorios-open-source-curados.md) | Repositórios externos, riscos e experimentos candidatos | M11–M15 e antes de adotar código externo |
 
 ---
 
