@@ -1,0 +1,58 @@
+# CI deste repositório — ESCRITO DO ZERO, não portado.
+#
+# Não havia `.github/workflows/`: nada rodava.
+#
+# Este repositório é 115 arquivos Markdown e nenhum código executável — não há
+# suíte para rodar, build para quebrar nem dependência para auditar. Um CI que
+# fingisse o contrário seria decorativo.
+#
+# O que existe de verificável, e é real: os LINKS ENTRE OS DOCUMENTOS. Medido
+# hoje, são 151 links relativos e nenhum quebrado. Um caderno de estudo cresce
+# por reorganização — pasta renomeada, arquivo movido — e é exatamente aí que
+# a referência apodrece em silêncio. Este gate torna isso vermelho no PR.
+#
+# NÃO HÁ MARKDOWNLINT, de propósito: seria inventar regra de estilo que
+# ninguém acordou. Link quebrado é defeito; linha com 81 caracteres não é.
+
+when:
+  - event: push
+    branch: main
+  - event: pull_request
+
+steps:
+  - name: links-internos
+    image: python:3.12
+    commands:
+      - |
+        python3 - <<'PY'
+        import os, re, sys
+
+        quebrados = []
+        total = 0
+        for dirpath, dirnames, filenames in os.walk("."):
+            dirnames[:] = [d for d in dirnames if d != ".git"]
+            for nome in filenames:
+                if not nome.endswith(".md"):
+                    continue
+                caminho = os.path.join(dirpath, nome)
+                texto = open(caminho, encoding="utf-8", errors="replace").read()
+                for m in re.finditer(r"\[[^\]]*\]\(([^)\s]+)\)", texto):
+                    alvo = m.group(1)
+                    # Link externo e âncora da própria página não são deste gate.
+                    if re.match(r"^(https?:|mailto:|#)", alvo):
+                        continue
+                    total += 1
+                    destino = os.path.normpath(
+                        os.path.join(dirpath, alvo.split("#")[0])
+                    )
+                    if not os.path.exists(destino):
+                        quebrados.append((caminho, alvo))
+
+        print(f"{total} link(s) relativo(s) conferido(s)")
+        if quebrados:
+            print(f"\n{len(quebrados)} link(s) quebrado(s):")
+            for caminho, alvo in quebrados:
+                print(f"  {caminho} -> {alvo}")
+            sys.exit(1)
+        print("nenhum link quebrado")
+        PY
