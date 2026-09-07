@@ -287,6 +287,8 @@ Para executar o experimento com gráficos e alterar ruído, tamanho da amostra e
 
 O microdesafio treina interpretação rápida; o notebook permite investigação reproduzível com `scikit-learn` e `matplotlib`.
 
+> Se o executor remoto do Coddy estiver indisponível ou demorar a responder, use o notebook do Colab como ambiente principal. O exercício não depende de uma única plataforma.
+
 ## 10. Laboratório guiado: veja a generalização acontecer
 
 Usaremos um dataset sintético e balanceado com duas classes. O objetivo não é dominar regressão logística ou árvores agora; é observar como complexidade, treino e avaliação interagem.
