@@ -300,17 +300,40 @@ Conclusões **não** sustentadas:
 - que um único split garante desempenho futuro;
 - que 8% de erro é aceitável para qualquer aplicação.
 
-## 9. Laboratório guiado: veja a generalização acontecer
+## 9. Prática interativa no navegador
+
+Antes do laboratório completo, use o microdesafio abaixo para interpretar scores de treino, validação e gap. Ele roda em Python diretamente no navegador, sem configuração local.
+
+**[Abrir o microdesafio da Aula 01 no Coddy](https://coddy.tech/embed-editor?lang=python&theme=dark&code=IyBBdWxhIDAxIC0gZGlhZ25vc3RpY28gZGlkYXRpY28gZGUgZ2VuZXJhbGl6YWNhbwojIFJlZ3JhIGhldXJpc3RpY2EgcGFyYSBhcHJlbmRlcjsgbmFvIGUgdW0gbGltaWFyIHVuaXZlcnNhbC4KCmRlZiBkaWFnbm9zdGljYXIobm9tZSwgYWNjdXJhY3lfdHJlaW5vLCBhY2N1cmFjeV92YWxpZGFjYW8pOgogICAgZ2FwID0gYWNjdXJhY3lfdHJlaW5vIC0gYWNjdXJhY3lfdmFsaWRhY2FvCiAgICBpZiBhY2N1cmFjeV90cmVpbm8gPCAwLjc1IGFuZCBhY2N1cmFjeV92YWxpZGFjYW8gPCAwLjc1OgogICAgICAgIGxlaXR1cmEgPSAicG9zc2l2ZWwgdW5kZXJmaXR0aW5nIgogICAgZWxpZiBnYXAgPiAwLjA4OgogICAgICAgIGxlaXR1cmEgPSAicG9zc2l2ZWwgb3ZlcmZpdHRpbmciCiAgICBlbHNlOgogICAgICAgIGxlaXR1cmEgPSAiZ2VuZXJhbGl6YWNhbyBwbGF1c2l2ZWw7IGludmVzdGlndWUgbWFpcyIKICAgIHByaW50KGYie25vbWU6MjJ9IHRyZWlubz17YWNjdXJhY3lfdHJlaW5vOi4zZn0gIHZhbGlkYWNhbz17YWNjdXJhY3lfdmFsaWRhY2FvOi4zZn0gIGdhcD17Z2FwOisuM2Z9IikKICAgIHByaW50KGYiICAtPiB7bGVpdHVyYX1cbiIpCgpleHBlcmltZW50b3MgPSBbCiAgICAoImJhc2VsaW5lIiwgMC41MDAsIDAuNTAwKSwKICAgICgiYXJ2b3JlX2RlcHRoXzEiLCAwLjgyMywgMC44NjApLAogICAgKCJhcnZvcmVfZGVwdGhfMyIsIDAuOTA1LCAwLjkzNSksCiAgICAoImFydm9yZV9zZW1fbGltaXRlIiwgMS4wMDAsIDAuODcwKSwKXQoKZm9yIGV4cGVyaW1lbnRvIGluIGV4cGVyaW1lbnRvczoKICAgIGRpYWdub3N0aWNhcigqZXhwZXJpbWVudG8pCgojIERFU0FGSU86CiMgMS4gTXVkZSBvcyBzY29yZXMgZSBvYnNlcnZlIG8gZGlhZ25vc3RpY28uCiMgMi4gQ3JpZSB1bSBjYXNvIGNvbSB0cmVpbm89MC45OCBlIHZhbGlkYWNhbz0wLjYwLgojIDMuIEV4cGxpcXVlIHBvciBxdWUgYSBoZXVyaXN0aWNhIG5hbyBwcm92YSBnZW5lcmFsaXphY2FvLgo%3D&credit=1)**
+
+O programa aplica uma heurística didática aos resultados. Depois de executá-lo:
+
+1. mude os scores de treino e validação;
+2. crie um caso com treino `0.98` e validação `0.60`;
+3. altere o limiar do gap;
+4. explique por que essa regra ajuda a investigar, mas não prova generalização.
+
+> No artigo do MirandasTech, o editor será incorporado diretamente na página. O GitHub bloqueia `iframe`, por isso esta versão oferece o link executável.
+
+### Notebook completo no Google Colab
+
+Para executar o experimento com gráficos e alterar ruído, tamanho da amostra e complexidade do modelo, abra o notebook complementar:
+
+[![Abrir no Google Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/01-fundamentos-machine-learning-laboratorio.ipynb)
+
+O microdesafio treina interpretação rápida; o notebook permite investigação reproduzível com `scikit-learn` e `matplotlib`.
+
+## 10. Laboratório guiado: veja a generalização acontecer
 
 Usaremos um dataset sintético e balanceado com duas classes. O objetivo não é dominar regressão logística ou árvores agora; é observar como complexidade, treino e avaliação interagem.
 
-### 9.1 Preparação
+### 10.1 Preparação
 
 ```bash
 python -m pip install numpy pandas matplotlib scikit-learn
 ```
 
-### 9.2 Experimento completo
+### 10.2 Experimento completo
 
 ```python
 import numpy as np
@@ -404,13 +427,13 @@ Com as versões atuais das bibliotecas e a semente fixada, o resultado esperado 
 
 Uma pontuação de validação ocasionalmente maior que a de treino não é paradoxal: o subconjunto separado pode ter ficado um pouco mais fácil por variação amostral. O sinal mais importante aqui é a árvore ilimitada atingir 100% no treino e cair fora dele.
 
-### 9.3 O que observar no gráfico
+### 10.3 O que observar no gráfico
 
 - **Profundidade 1:** fronteira simples demais; não acompanha a geometria das classes.
 - **Profundidade 3:** captura a estrutura principal sem fragmentar excessivamente o espaço.
 - **Sem limite:** cria regiões pequenas para acertar particularidades do treino; isso é compatível com overfitting.
 
-### 9.4 Experimentos adicionais
+### 10.4 Experimentos adicionais
 
 Execute uma alteração por vez:
 
@@ -422,7 +445,7 @@ Execute uma alteração por vez:
 
 > **Nota metodológica:** usamos accuracy porque o dataset é sintético e balanceado. Em problemas reais, a métrica deve refletir prevalência, custos e tipo de erro. As aulas 13 a 16 aprofundarão avaliação, limiares e classes desbalanceadas.
 
-## 10. Protocolo mínimo de um experimento honesto
+## 11. Protocolo mínimo de um experimento honesto
 
 Antes de executar:
 
@@ -446,7 +469,7 @@ Depois de executar:
 - declare limitações e ameaças à validade;
 - preserve código e configuração para reprodução.
 
-## 11. Onde os primeiros projetos costumam errar
+## 12. Onde os primeiros projetos costumam errar
 
 1. **Começar pelo algoritmo:** “quero usar Random Forest” não é uma pergunta de pesquisa nem um objetivo de negócio.
 2. **Avaliar no treino:** mede o quanto o modelo se ajustou aos exemplos conhecidos.
@@ -456,7 +479,7 @@ Depois de executar:
 6. **Usar complexidade para compensar falta de informação:** nenhum modelo aprende uma variável que não foi observada.
 7. **Prometer generalização universal:** toda conclusão vale para uma população e um cenário definidos.
 
-## 12. Teste sua compreensão
+## 13. Teste sua compreensão
 
 ### Questões conceituais
 
@@ -500,7 +523,7 @@ Escolha um problema do seu contexto e preencha:
 
 Se algum campo essencial não puder ser preenchido, a próxima tarefa é entender melhor o problema — não escolher um algoritmo.
 
-## 13. Critério de domínio
+## 14. Critério de domínio
 
 Você domina esta aula quando consegue, sem consultar o texto:
 
@@ -523,7 +546,7 @@ Você domina esta aula quando consegue, sem consultar o texto:
 
 Avance quando alcançar pelo menos o nível 3.
 
-## 14. Vídeo complementar
+## 15. Vídeo complementar
 
 **StatQuest — A Gentle Introduction to Machine Learning** (11 min, em inglês, com legendas automáticas). O vídeo apresenta classificação, regressão, viés, variância e avaliação por meio de exemplos visuais simples.
 
@@ -531,7 +554,7 @@ Avance quando alcançar pelo menos o nível 3.
 
 Use o vídeo como revisão visual depois de ler as seções 1 a 8. Ao assistir, responda: **qual exemplo representa underfitting e qual representa overfitting?**
 
-## 15. Leituras e fontes verificadas
+## 16. Leituras e fontes verificadas
 
 ### Essenciais
 
@@ -542,11 +565,12 @@ Use o vídeo como revisão visual depois de ler as seções 1 a 8. Ao assistir, 
 ### Materiais práticos e visuais
 
 - Google for Developers. [Machine Learning Crash Course](https://developers.google.com/machine-learning/crash-course). Curso com vídeos, visualizações interativas e exercícios.
+- Coddy. [Editor de código incorporável](https://coddy.tech/embed/pt). Playground executável usado no microdesafio desta aula.
 - scikit-learn. [Underfitting vs. Overfitting](https://scikit-learn.org/stable/auto_examples/model_selection/plot_underfitting_overfitting.html). Exemplo visual reproduzível.
 - scikit-learn. [Learning curves](https://scikit-learn.org/stable/modules/learning_curve.html). Como interpretar scores de treino e validação.
 - Stanford CS229. [Bias–Variance Analysis](https://cs229.stanford.edu/summer2019/BiasVarianceAnalysis.pdf). Notas de aula para aprofundamento matemático.
 
-## 16. Continue a formação
+## 17. Continue a formação
 
 **Próxima aula:** [Aula 02 — Do problema ao experimento: features, target, splits e baseline](./02-framing-dataset-split-baseline.md)
 
