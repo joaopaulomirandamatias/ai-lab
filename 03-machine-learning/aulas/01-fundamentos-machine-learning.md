@@ -1,233 +1,558 @@
-# Aula 01 — Fundamentos de Machine Learning: problemas, paradigmas e generalização
+# Aula 01 — Fundamentos de Machine Learning: do problema à generalização
 
 **Trilha:** Especialista em IA  
 **Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Módulos 01 Matemática e 02 Probabilidade/Estatística concluídos  
-**Objetivo central:** Entender o que torna um problema de Machine Learning diferente de uma regra programada manualmente e distinguir treinamento, inferência e generalização.
+**Aula:** 01 de 24  
+**Pré-requisitos:** noções de álgebra linear, probabilidade e estatística  
+**Tempo sugerido:** 3 a 4 horas, incluindo laboratório e exercícios  
+**Objetivo central:** compreender o que uma máquina realmente aprende, distinguir os principais paradigmas e avaliar se um modelo aprendeu um padrão generalizável — e não apenas memorizou os dados.
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+> **Ideia-chave:** treinar um modelo não é o objetivo final. O objetivo é produzir previsões úteis para exemplos que o modelo ainda não viu.
 
-## Objetivos de aprendizagem
+## O que você será capaz de fazer ao final
 
-- Distinguir aprendizado supervisionado, não supervisionado e semi/self-supervisionado.
-- Definir amostra, feature, target, modelo, parâmetro e hiperparâmetro.
-- Explicar treinamento, inferência e generalização.
-- Reconhecer underfitting, overfitting e erro irredutível.
-- Formular um problema de ML antes de escolher um algoritmo.
+Ao concluir esta aula, você deverá conseguir:
 
-## 1. Por que este tema importa para IA?
+- explicar quando um problema pode — ou não — se beneficiar de Machine Learning;
+- distinguir aprendizagem supervisionada, não supervisionada, semissupervisionada, autossupervisionada e por reforço;
+- definir amostra, *feature*, *target*, modelo, parâmetro, hiperparâmetro, função de perda e inferência;
+- explicar treinamento, validação e generalização sem depender de jargões;
+- reconhecer sinais de *underfitting* e *overfitting*;
+- executar e interpretar um experimento mínimo e reproduzível em Python.
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+## Mapa da aula
 
-O foco desta aula é **entender o que torna um problema de machine learning diferente de uma regra programada manualmente e distinguir treinamento, inferência e generalização.**
-
-## 2. Ideias fundamentais
-
-### 1. Do programa explícito ao modelo aprendido
-
-Em programação tradicional, regras + dados produzem saídas. Em ML supervisionado, exemplos de entrada e saída são usados para aprender uma função aproximada $\hat f(x;\theta)$ capaz de generalizar para exemplos não vistos.
-
-### 2. Treinamento e inferência
-
-Treinamento é o processo de ajustar parâmetros $\theta$ para reduzir uma função de perda. Inferência é usar os parâmetros já ajustados para produzir previsões. Misturar os dois conceitos leva a erros de arquitetura e avaliação.
-
-### 3. Generalização
-
-O objetivo real não é minimizar o erro nos dados de treinamento, mas o risco esperado em dados provenientes da distribuição de interesse. Um modelo que memoriza o treino pode ter baixo erro empírico e alto erro fora da amostra.
-
-### 4. Viés e variância
-
-Modelos simples podem ter alto viés; modelos muito flexíveis podem ter alta variância. O ponto útil depende do tamanho dos dados, ruído, regularização e desenho experimental.
-
-## Aprofundamento — risco empírico, risco populacional e generalização
-
-O conjunto de treino é uma amostra finita. O objeto que realmente queremos minimizar é o **risco populacional**
-
-$$
-R(\theta)=\mathbb{E}_{(X,Y)\sim P_{\text{alvo}}}[L(f_\theta(X),Y)],
-$$
-
-mas a distribuição-alvo $P_{\text{alvo}}$ é desconhecida. Substituímos a esperança pelo risco empírico
-
-$$
-\hat R_n(\theta)=\frac{1}{n}\sum_{i=1}^{n}L(f_\theta(x_i),y_i).
-$$
-
-Minimizar $\hat R_n$ é necessário, porém não suficiente. Se a família de modelos for flexível demais para o tamanho e a qualidade da amostra, o algoritmo pode aprender ruído, identificadores ou particularidades do período observado. A diferença $R(\hat\theta)-\hat R_n(\hat\theta)$ é o **gap de generalização**.
-
-Toda afirmação de generalização depende de hipóteses: a amostra deve representar o contexto de uso; exemplos não podem atravessar indevidamente os splits; e a distribuição de produção não pode mudar de forma relevante. Em dados temporais, médicos ou corporativos, a hipótese iid é frequentemente apenas uma aproximação e precisa ser discutida.
-
-## 3. Equação para guardar
-
-$$
-\hat{\theta}=\arg\min_{\theta}\frac{1}{n}\sum_{i=1}^{n}L(f_\theta(x_i),y_i)
-$$
-
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
-
-## 4. Exemplo mental
-
-Classificar e-mails como spam/não spam. Features podem incluir representações do texto; target é a classe. O modelo é treinado em exemplos rotulados e avaliado em mensagens que não participaram do ajuste.
-
-## Exemplo numérico resolvido
-
-Considere erro de classificação em 1.000 exemplos de treino e 200 de validação:
-
-- árvore profunda: erro de treino $2\%$ e validação $11\%$;
-- regressão logística: erro de treino $7\%$ e validação $8\%$;
-- baseline majoritário: erro de validação $9\%$.
-
-A árvore tem gap de $9$ pontos percentuais e perde para o baseline fora da amostra: forte sinal de overfitting. A regressão logística tem gap de apenas $1$ ponto e melhora o baseline em $1$ ponto. Não basta olhar o treino nem escolher o modelo mais complexo; a decisão deve considerar incerteza, custo dos erros e estabilidade em outros splits.
-
-## 5. Laboratório em Python / scikit-learn
-
-```python
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-
-X, y = load_iris(return_X_y=True)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.25, random_state=42, stratify=y
-)
-
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
-
-pred = model.predict(X_test)
-print("accuracy:", accuracy_score(y_test, pred))
+```mermaid
+flowchart TD
+    A["Problema real"] --> B{"Regras bastam?"}
+    B -->|Sim| C["Programação tradicional"]
+    B -->|Não| D["Dados e objetivo mensurável"]
+    D --> E["Treinamento"]
+    E --> F["Avaliação fora do treino"]
+    F --> G{"Generaliza?"}
+    G -->|Sim| H["Inferência em novos casos"]
+    G -->|Não| I["Reformular dados, hipótese ou modelo"]
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+---
 
-### Investigação adicional
+## 1. Comece pelo problema, não pelo algoritmo
 
-Compare `DummyClassifier`, regressão logística e árvore com profundidades 1, 2, 4, 8 e sem limite. Construa curvas de treino e validação para 10%, 25%, 50%, 75% e 100% dos dados. Explique onde aparece alto viés, onde aparece alta variância e se mais dados parecem ajudar.
+Imagine que uma empresa queira decidir se deve aprovar uma compra no cartão.
 
-## Laboratório guiado completo
+Uma regra explícita poderia ser:
 
-O experimento abaixo mede treino e teste para um baseline, um modelo linear e uma árvore flexível. Execute antes de alterar parâmetros.
+```text
+SE valor > R$ 10.000 E país != país habitual
+ENTÃO solicitar verificação adicional
+```
+
+Esse tipo de solução é fácil de explicar e testar. Se poucas regras estáveis resolvem o problema, talvez você **não precise de Machine Learning**.
+
+Agora suponha que o risco dependa da combinação de dezenas de sinais: horário, sequência recente de compras, dispositivo, localização aproximada, histórico do estabelecimento e padrões que mudam ao longo do tempo. Escrever manualmente todas as combinações pode se tornar inviável. Nesse cenário, um algoritmo pode usar exemplos históricos para estimar uma função que relacione sinais de entrada ao resultado desejado.
+
+Machine Learning é útil quando:
+
+- existe um padrão que pode ser aprendido a partir de dados;
+- o resultado desejado pode ser definido e medido;
+- regras manuais são insuficientes, caras ou frágeis;
+- há exemplos representativos do contexto em que o sistema será usado;
+- o custo de produzir e manter o modelo é menor que o benefício esperado.
+
+Machine Learning pode ser a escolha errada quando:
+
+- uma regra simples resolve o problema de forma confiável;
+- não há dados suficientes ou os dados não representam o uso real;
+- o evento é essencialmente imprevisível com as informações disponíveis;
+- o erro não é tolerável e não existe supervisão ou mecanismo seguro de fallback;
+- o objetivo não foi definido de forma mensurável.
+
+> **Pergunta de engenharia:** se você não consegue explicar qual decisão será apoiada, que informação estará disponível naquele momento e como o erro será medido, ainda não existe um problema de ML bem formulado.
+
+## 2. Programação tradicional × Machine Learning
+
+Na programação tradicional, uma pessoa escreve as regras. Em aprendizagem supervisionada, o algoritmo estima as regras internas — os parâmetros — a partir de exemplos.
+
+```mermaid
+flowchart LR
+    subgraph P["Programação tradicional"]
+        R["Regras humanas"] --> S["Programa"]
+        D1["Dados"] --> S
+        S --> O1["Saída"]
+    end
+    subgraph M["Machine Learning supervisionado"]
+        D2["Dados"] --> T["Algoritmo de treino"]
+        Y["Respostas conhecidas"] --> T
+        T --> MOD["Modelo aprendido"]
+    end
+```
+
+Depois do treinamento, o modelo recebe novos dados e produz uma previsão:
+
+$$
+\hat y=f_{\theta}(x)
+$$
+
+onde:
+
+- $x$ representa as informações de entrada;
+- $f$ é a família de funções escolhida;
+- $\theta$ são os parâmetros aprendidos;
+- $\hat y$ é a previsão;
+- $y$ é o valor real, quando ele está disponível.
+
+O modelo não “entende” o problema como uma pessoa. Ele ajusta uma função segundo um objetivo matemático e os exemplos fornecidos. Por isso, a qualidade do resultado depende tanto dos dados e do desenho do experimento quanto do algoritmo.
+
+## 3. Vocabulário essencial
+
+| Termo | Significado | Exemplo em detecção de spam |
+|---|---|---|
+| **Amostra ou exemplo** | Uma unidade observada do dataset | Um e-mail |
+| **Feature** | Informação usada como entrada | Frequência de palavras, remetente, número de links |
+| **Target, label ou alvo** | Resultado que queremos prever | `spam` ou `não spam` |
+| **Dataset** | Conjunto organizado de exemplos | Histórico de e-mails classificados |
+| **Modelo** | Função parametrizada que transforma entradas em previsões | Regressão logística, árvore de decisão |
+| **Parâmetro** | Valor aprendido durante o treinamento | Peso associado à frequência de uma palavra |
+| **Hiperparâmetro** | Configuração escolhida antes ou durante o processo de seleção | Profundidade máxima de uma árvore |
+| **Função de perda** | Quantifica o erro que o treinamento tenta reduzir | Log loss, erro quadrático |
+| **Treinamento** | Ajuste dos parâmetros a partir dos dados | Aprender pesos usando e-mails rotulados |
+| **Inferência** | Uso do modelo já treinado em um novo caso | Classificar um e-mail recém-recebido |
+| **Generalização** | Desempenho em casos não usados no ajuste | Manter qualidade em novos e-mails |
+
+### Parâmetro não é hiperparâmetro
+
+Considere uma árvore de decisão:
+
+- os pontos de corte aprendidos pela árvore são **parâmetros**;
+- `max_depth=3`, escolhido pelo pesquisador, é um **hiperparâmetro**.
+
+Durante o treinamento, o algoritmo aprende parâmetros. O processo experimental escolhe hiperparâmetros. A Aula 18 tratará essa seleção com profundidade.
+
+## 4. Os principais paradigmas de aprendizagem
+
+“Supervisionado” e “não supervisionado” não são sinônimos de “com” e “sem inteligência”. Eles descrevem o tipo de sinal disponível durante o aprendizado.
+
+| Paradigma | Sinal de aprendizagem | Pergunta típica | Exemplos |
+|---|---|---|---|
+| **Supervisionado** | Pares de entrada e resposta $(x,y)$ | “Qual será o resultado?” | Classificação de spam, previsão de preço |
+| **Não supervisionado** | Entradas $x$, sem um alvo explícito | “Que estrutura existe nesses dados?” | Agrupamento, redução de dimensionalidade |
+| **Semissupervisionado** | Poucos exemplos rotulados e muitos não rotulados | “Como aproveitar dados sem rótulo?” | Classificação de imagens com poucos rótulos |
+| **Autossupervisionado** | O próprio dado gera o sinal de treinamento | “Que parte do dado pode ser prevista a partir de outra?” | Prever tokens ocultos, contrastar representações |
+| **Por reforço** | Recompensas após ações em um ambiente | “Que sequência de ações maximiza o retorno?” | Controle, jogos, robótica |
+
+```mermaid
+flowchart TD
+    ML["Machine Learning"] --> SUP["Supervisionado"]
+    ML --> UNSUP["Não supervisionado"]
+    ML --> OUT["Outros paradigmas"]
+    SUP --> REG["Regressão: valor contínuo"]
+    SUP --> CLA["Classificação: categoria"]
+    UNSUP --> CLU["Clustering"]
+    UNSUP --> DIM["Redução de dimensão"]
+    OUT --> SEMI["Semissupervisionado"]
+    OUT --> SELF["Autossupervisionado"]
+    OUT --> RL["Reforço"]
+```
+
+### Uma correção conceitual importante
+
+Aprendizagem **semissupervisionada** e **autossupervisionada** não são a mesma coisa:
+
+- na semissupervisionada, existem rótulos humanos ou externos, mas em pequena quantidade;
+- na autossupervisionada, o sinal de treino é construído automaticamente a partir da estrutura do próprio dado.
+
+Esta trilha concentra-se primeiro em Machine Learning clássico supervisionado e, mais adiante, aborda aprendizagem não supervisionada nas aulas 21 e 22.
+
+## 5. Treinamento, avaliação e inferência
+
+Essas três etapas têm papéis diferentes:
+
+1. **Treinamento:** o algoritmo observa exemplos e ajusta os parâmetros do modelo.
+2. **Avaliação fora do treino:** exemplos separados ajudam a estimar se o padrão aprendido funciona além da amostra usada no ajuste.
+3. **Inferência:** o modelo já treinado recebe dados novos e produz previsões.
+
+```mermaid
+flowchart LR
+    A["Dados históricos"] --> B["Separação experimental"]
+    B --> C["Treino"]
+    B --> D["Dados não vistos no ajuste"]
+    C --> E["Modelo treinado"]
+    E --> F["Previsões"]
+    D --> F
+    F --> G["Métrica + análise de erros"]
+    G --> H["Estimativa de generalização"]
+```
+
+> A separação correta entre treino, validação e teste será construída passo a passo na Aula 02. Por enquanto, guarde a fronteira essencial: **avaliar nos mesmos exemplos usados para ajustar o modelo mede memória de treino, não generalização**.
+
+### O que é generalizar?
+
+Generalizar é manter desempenho útil em novos exemplos provenientes do contexto de interesse. “Novo” não significa apenas uma linha que não estava no arquivo de treino. Pode significar:
+
+- outro cliente;
+- outro equipamento;
+- outro hospital;
+- uma data futura;
+- uma região diferente;
+- uma condição operacional ainda não observada.
+
+Portanto, nenhuma métrica prova generalização universal. Ela estima desempenho sob hipóteses sobre população, tempo, dependência entre exemplos e estabilidade da distribuição.
+
+## 6. A matemática mínima do aprendizado supervisionado
+
+Considere um conjunto de treinamento
+
+$$
+D=\{(x_1,y_1),(x_2,y_2),\ldots,(x_n,y_n)\}.
+$$
+
+O algoritmo procura parâmetros $\theta$ que reduzam a perda média nos exemplos observados:
+
+$$
+\hat{\theta}=\arg\min_{\theta}\hat R_n(\theta)
+=\arg\min_{\theta}\frac{1}{n}\sum_{i=1}^{n}L(f_{\theta}(x_i),y_i).
+$$
+
+Leia a equação da direita para a esquerda:
+
+1. o modelo $f_\theta$ produz uma previsão para $x_i$;
+2. a função $L$ mede a diferença entre previsão e resposta real;
+3. calculamos a média das perdas nos $n$ exemplos;
+4. procuramos parâmetros que tornem essa média pequena.
+
+Essa média é o **risco empírico**. Reduzi-la é necessário, mas não garante bom desempenho fora do treino.
+
+<details>
+<summary><strong>Aprofundamento opcional — risco populacional</strong></summary>
+
+O objetivo ideal seria minimizar a perda esperada na distribuição de uso:
+
+$$
+R(\theta)=\mathbb{E}_{(X,Y)\sim P_{\text{alvo}}}
+[L(f_\theta(X),Y)].
+$$
+
+Como $P_{\text{alvo}}$ é desconhecida, usamos amostras. A diferença entre o desempenho esperado e o observado no treino é relacionada ao **gap de generalização**. Essa interpretação só é válida se o experimento representar adequadamente o uso pretendido.
+
+</details>
+
+## 7. Underfitting, ajuste adequado e overfitting
+
+### Underfitting
+
+O modelo é simples demais, foi treinado de forma insuficiente ou não recebeu informação capaz de representar o padrão. Ele erra no treino e também fora dele. É um quadro associado a **alto viés**.
+
+### Ajuste adequado
+
+O modelo captura a estrutura relevante sem se tornar excessivamente sensível às particularidades da amostra. Os erros de treino e avaliação são compatíveis com o ruído e com a dificuldade do problema.
+
+### Overfitting
+
+O modelo se ajusta muito bem ao treino, inclusive a ruídos e coincidências, mas perde desempenho em dados não vistos. É um quadro associado a **alta variância**.
+
+| Padrão observado | Treino | Dados não vistos | Diagnóstico provável |
+|---|---:|---:|---|
+| Erro alto nos dois | ruim | ruim | Underfitting, features fracas ou problema difícil |
+| Erro baixo no treino e bem maior fora | ótimo | ruim | Overfitting |
+| Erro semelhante e aceitável | bom | bom | Ajuste potencialmente adequado |
+
+```mermaid
+flowchart LR
+    U["Pouca flexibilidade<br/>underfitting"] --> O["Complexidade útil"]
+    O --> V["Flexibilidade excessiva<br/>overfitting"]
+```
+
+### E o erro irredutível?
+
+Mesmo o melhor modelo possível pode errar quando:
+
+- o fenômeno contém aleatoriedade;
+- informações relevantes não estão disponíveis;
+- os rótulos têm erros ou ambiguidades;
+- casos diferentes possuem as mesmas features observadas.
+
+Esse componente é chamado **erro irredutível**. Adicionar complexidade não cria informação ausente; às vezes apenas aumenta o overfitting.
+
+> **Cuidado:** diferença entre treino e avaliação é um sinal, não um diagnóstico automático. Amostras pequenas, splits inadequados, mudança temporal e leakage também podem produzir resultados enganosos.
+
+## 8. Exemplo numérico resolvido
+
+Considere três soluções avaliadas em exemplos que não participaram do ajuste:
+
+| Solução | Erro no treino | Erro fora do treino | Gap |
+|---|---:|---:|---:|
+| Regra majoritária | — | 9% | — |
+| Modelo linear | 7% | 8% | 1 p.p. |
+| Árvore sem limite | 2% | 11% | 9 p.p. |
+
+A árvore tem o menor erro de treino, mas o pior resultado fora dele — inclusive pior que a regra majoritária. O modelo linear erra mais no treino, porém apresenta o melhor resultado nos exemplos separados.
+
+Conclusões sustentadas pelo exemplo:
+
+- menor erro de treino não significa melhor modelo;
+- um baseline simples é necessário para dar contexto à métrica;
+- o gap ajuda a investigar overfitting;
+- escolher um modelo exige considerar incerteza, custo dos erros e estabilidade.
+
+Conclusões **não** sustentadas:
+
+- que o modelo linear sempre será melhor;
+- que um único split garante desempenho futuro;
+- que 8% de erro é aceitável para qualquer aplicação.
+
+## 9. Laboratório guiado: veja a generalização acontecer
+
+Usaremos um dataset sintético e balanceado com duas classes. O objetivo não é dominar regressão logística ou árvores agora; é observar como complexidade, treino e avaliação interagem.
+
+### 9.1 Preparação
+
+```bash
+python -m pip install numpy pandas matplotlib scikit-learn
+```
+
+### 9.2 Experimento completo
 
 ```python
-from sklearn.datasets import load_breast_cancer
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.datasets import make_moons
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import balanced_accuracy_score
+from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
-X, y = load_breast_cancer(return_X_y=True)
-Xtr, Xte, ytr, yte = train_test_split(
-    X, y, test_size=0.25, stratify=y, random_state=42
+# 1) Dataset sintético: duas classes em formato de luas
+X, y = make_moons(n_samples=800, noise=0.28, random_state=42)
+
+# 2) Holdout didático. A Aula 02 formalizará os papéis dos splits.
+X_train, X_valid, y_train, y_valid = train_test_split(
+    X,
+    y,
+    test_size=0.25,
+    stratify=y,
+    random_state=42,
 )
+
+# 3) Modelos com capacidades diferentes
 models = {
-    "dummy": DummyClassifier(strategy="prior"),
-    "logistic": make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000)),
-    "tree": DecisionTreeClassifier(random_state=42),
+    "baseline": DummyClassifier(strategy="most_frequent"),
+    "linear": make_pipeline(StandardScaler(), LogisticRegression()),
+    "arvore_depth_1": DecisionTreeClassifier(max_depth=1, random_state=42),
+    "arvore_depth_3": DecisionTreeClassifier(max_depth=3, random_state=42),
+    "arvore_sem_limite": DecisionTreeClassifier(random_state=42),
 }
+
+# 4) Treinamento e avaliação
+rows = []
 for name, model in models.items():
-    model.fit(Xtr, ytr)
-    train = balanced_accuracy_score(ytr, model.predict(Xtr))
-    test = balanced_accuracy_score(yte, model.predict(Xte))
-    print(name, {"train": round(train, 3), "test": round(test, 3), "gap": round(train-test, 3)})
+    model.fit(X_train, y_train)
+    acc_train = accuracy_score(y_train, model.predict(X_train))
+    acc_valid = accuracy_score(y_valid, model.predict(X_valid))
+    rows.append({
+        "modelo": name,
+        "accuracy_treino": acc_train,
+        "accuracy_validacao": acc_valid,
+        "gap": acc_train - acc_valid,
+    })
+
+results = pd.DataFrame(rows).sort_values("accuracy_validacao", ascending=False)
+print(results.round(3).to_string(index=False))
+
+# 5) Fronteiras de decisão para três árvores
+def plot_boundary(ax, model, title):
+    x_min, x_max = X[:, 0].min() - 0.5, X[:, 0].max() + 0.5
+    y_min, y_max = X[:, 1].min() - 0.5, X[:, 1].max() + 0.5
+    xx, yy = np.meshgrid(
+        np.linspace(x_min, x_max, 350),
+        np.linspace(y_min, y_max, 350),
+    )
+    grid = np.c_[xx.ravel(), yy.ravel()]
+    zz = model.predict(grid).reshape(xx.shape)
+    ax.contourf(xx, yy, zz, alpha=0.25, cmap="coolwarm")
+    ax.scatter(X_valid[:, 0], X_valid[:, 1], c=y_valid, s=18,
+               edgecolor="white", linewidth=0.25, cmap="coolwarm")
+    ax.set_title(title)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.8))
+for ax, key, title in zip(
+    axes,
+    ["arvore_depth_1", "arvore_depth_3", "arvore_sem_limite"],
+    ["Pouca flexibilidade", "Complexidade útil", "Flexibilidade excessiva"],
+):
+    plot_boundary(ax, models[key], title)
+
+plt.tight_layout()
+plt.show()
 ```
 
-**Entregue:** tabela com os gaps; árvore com `max_depth` variando; curva de aprendizagem; explicação de por que score de treino não decide o melhor modelo.
+Com as versões atuais das bibliotecas e a semente fixada, o resultado esperado é aproximadamente:
 
-### Protocolo investigativo obrigatório
+| Modelo | Accuracy treino | Accuracy validação | Gap |
+|---|---:|---:|---:|
+| Baseline | 0,500 | 0,500 | 0,000 |
+| Linear | 0,853 | 0,885 | −0,032 |
+| Árvore depth 1 | 0,823 | 0,860 | −0,037 |
+| Árvore depth 3 | 0,905 | 0,935 | −0,030 |
+| Árvore sem limite | 1,000 | 0,870 | 0,130 |
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+Uma pontuação de validação ocasionalmente maior que a de treino não é paradoxal: o subconjunto separado pode ter ficado um pouco mais fácil por variação amostral. O sinal mais importante aqui é a árvore ilimitada atingir 100% no treino e cair fora dele.
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+### 9.3 O que observar no gráfico
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+- **Profundidade 1:** fronteira simples demais; não acompanha a geometria das classes.
+- **Profundidade 3:** captura a estrutura principal sem fragmentar excessivamente o espaço.
+- **Sem limite:** cria regiões pequenas para acertar particularidades do treino; isso é compatível com overfitting.
 
-## 6. Conexão com o AI Systems Laboratory
+### 9.4 Experimentos adicionais
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+Execute uma alteração por vez:
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+1. Troque `noise=0.28` por `0.10` e depois por `0.45`.
+2. Troque `n_samples=800` por `100` e depois por `5_000`.
+3. Teste profundidades `2`, `4`, `8` e `None`.
+4. Repita com sementes de 0 a 9 e registre média e dispersão.
+5. Explique por que escolher a melhor profundidade usando repetidamente o mesmo holdout tornaria a estimativa otimista.
 
-## 7. Armadilhas comuns
+> **Nota metodológica:** usamos accuracy porque o dataset é sintético e balanceado. Em problemas reais, a métrica deve refletir prevalência, custos e tipo de erro. As aulas 13 a 16 aprofundarão avaliação, limiares e classes desbalanceadas.
 
-- Escolher o algoritmo antes de definir claramente target, unidade de análise e métrica.
-- Avaliar o modelo nos mesmos dados usados para treiná-lo.
-- Confundir desempenho médio histórico com garantia de comportamento futuro.
-- Ignorar mudança de distribuição entre treino e produção.
+## 10. Protocolo mínimo de um experimento honesto
 
-## 8. Exercícios
+Antes de executar:
 
-1. Dê um exemplo de problema que não precisa de ML e explique por quê.
-2. Explique com suas palavras a diferença entre parâmetro e hiperparâmetro.
-3. Por que erro de treino baixo não garante generalização?
-4. Classifique três problemas seus como regressão, classificação ou não supervisionado.
+- escreva a pergunta e a hipótese;
+- defina o que representa cada amostra;
+- registre quais informações estarão disponíveis no instante da previsão;
+- estabeleça um baseline;
+- escolha uma métrica coerente com a decisão.
 
-## Exercícios de aprofundamento e rubrica
+Durante o experimento:
 
-### Nível A — reconstrução conceitual
+- mantenha a separação entre dados de ajuste e avaliação;
+- altere uma decisão por vez;
+- registre seed, versões, preprocessing e hiperparâmetros;
+- compare o modelo ao baseline.
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+Depois de executar:
 
-### Nível B — cálculo e implementação
+- analise exemplos de erro, não apenas a média;
+- registre o que o resultado sustenta e o que não sustenta;
+- declare limitações e ameaças à validade;
+- preserve código e configuração para reprodução.
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+## 11. Onde os primeiros projetos costumam errar
 
-### Nível C — contraprova experimental
+1. **Começar pelo algoritmo:** “quero usar Random Forest” não é uma pergunta de pesquisa nem um objetivo de negócio.
+2. **Avaliar no treino:** mede o quanto o modelo se ajustou aos exemplos conhecidos.
+3. **Confundir correlação com informação utilizável:** uma feature pode revelar o futuro ou o próprio target.
+4. **Ignorar o baseline:** 95% pode ser inútil se uma regra simples obtém 99%.
+5. **Tratar um split como verdade:** uma única amostra de avaliação contém incerteza.
+6. **Usar complexidade para compensar falta de informação:** nenhum modelo aprende uma variável que não foi observada.
+7. **Prometer generalização universal:** toda conclusão vale para uma população e um cenário definidos.
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+## 12. Teste sua compreensão
 
-### Nível D — transferência para sistema real
+### Questões conceituais
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+1. Em que situação uma regra explícita seria melhor que ML?
+2. Qual é a diferença entre treinamento e inferência?
+3. Por que semissupervisionado e autossupervisionado não são sinônimos?
+4. O que significa dizer que um modelo generaliza?
+5. Dê um exemplo de parâmetro e outro de hiperparâmetro.
+6. Como treino quase perfeito pode coexistir com desempenho ruim fora do treino?
+7. O que é erro irredutível?
 
-### Rubrica de 0 a 4
+<details>
+<summary><strong>Respostas orientadoras</strong></summary>
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+1. Quando poucas regras estáveis, auditáveis e baratas resolvem o problema com segurança.
+2. Treinamento ajusta parâmetros; inferência usa os parâmetros já ajustados para prever novos casos.
+3. O semissupervisionado combina exemplos rotulados e não rotulados; o autossupervisionado deriva o sinal do próprio dado.
+4. Significa manter desempenho útil em exemplos não usados no ajuste e representativos do uso pretendido.
+5. Peso de um modelo linear; profundidade máxima configurada para uma árvore.
+6. O modelo pode memorizar ruído e particularidades da amostra — overfitting.
+7. É a parcela de erro causada por aleatoriedade, informação ausente ou ambiguidade que o modelo não consegue eliminar apenas aumentando complexidade.
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+</details>
 
-## 9. Critério de domínio
+### Desafio de transferência
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+Escolha um problema do seu contexto e preencha:
 
-## 10. Referências principais
+| Campo | Sua definição |
+|---|---|
+| Decisão apoiada | |
+| Unidade de análise | |
+| Entrada disponível no momento da decisão | |
+| Resultado a prever ou estrutura a descobrir | |
+| Paradigma de aprendizagem | |
+| Baseline | |
+| Custo de falso positivo | |
+| Custo de falso negativo | |
+| Cenário em que o modelo será usado | |
+| Principal risco de generalização | |
 
-- James et al. — An Introduction to Statistical Learning with Applications in Python (ISLP), caps. 1–2.
-- Hastie, Tibshirani & Friedman — The Elements of Statistical Learning, caps. 1–2.
-- Murphy — Probabilistic Machine Learning: An Introduction, cap. 1.
-- scikit-learn User Guide — Supervised learning.
+Se algum campo essencial não puder ser preenchido, a próxima tarefa é entender melhor o problema — não escolher um algoritmo.
 
-## Leitura orientada e fontes verificadas
+## 13. Critério de domínio
 
-- James et al. — [An Introduction to Statistical Learning with Applications in Python](https://www.statlearning.com/), caps. 1–2.
-- Murphy — [Probabilistic Machine Learning: An Introduction](https://probml.github.io/pml-book/book1.html), decisões, risco e empirical risk minimization.
-- Hastie, Tibshirani e Friedman — [The Elements of Statistical Learning](https://hastie.su.domains/ElemStatLearn/), caps. 2 e 7.
-- scikit-learn — [Learning curves](https://scikit-learn.org/stable/modules/learning_curve.html) e [model evaluation](https://scikit-learn.org/stable/modules/model_evaluation.html).
+Você domina esta aula quando consegue, sem consultar o texto:
 
-## Próxima aula
+- explicar ML usando um exemplo próprio;
+- identificar se o problema é regressão, classificação, não supervisionado ou não precisa de ML;
+- desenhar o ciclo dados → treinamento → modelo → inferência → avaliação;
+- explicar parâmetros, hiperparâmetros, perda e generalização;
+- interpretar a diferença entre scores de treino e avaliação;
+- executar o laboratório, alterar uma hipótese e defender sua conclusão.
 
-**Do problema ao experimento: features, target, splits e baseline**
+### Rubrica
+
+| Nível | Evidência de aprendizagem |
+|---:|---|
+| 0 — Reconhecimento | Repete termos, mas não explica o mecanismo |
+| 1 — Reprodução | Executa o código pronto |
+| 2 — Compreensão | Explica resultados e símbolos das equações |
+| 3 — Diagnóstico | Prevê underfitting/overfitting e investiga erros |
+| 4 — Transferência | Formula e defende um experimento novo e reproduzível |
+
+Avance quando alcançar pelo menos o nível 3.
+
+## 14. Vídeo complementar
+
+**StatQuest — A Gentle Introduction to Machine Learning** (11 min, em inglês, com legendas automáticas). O vídeo apresenta classificação, regressão, viés, variância e avaliação por meio de exemplos visuais simples.
+
+[![A Gentle Introduction to Machine Learning — StatQuest](https://img.youtube.com/vi/Gv9_4yMHFhI/maxresdefault.jpg)](https://www.youtube.com/watch?v=Gv9_4yMHFhI)
+
+Use o vídeo como revisão visual depois de ler as seções 1 a 8. Ao assistir, responda: **qual exemplo representa underfitting e qual representa overfitting?**
+
+## 15. Leituras e fontes verificadas
+
+### Essenciais
+
+- Gareth James, Daniela Witten, Trevor Hastie, Robert Tibshirani e Jonathan Taylor. [*An Introduction to Statistical Learning with Applications in Python*](https://www.statlearning.com/), capítulos 1 e 2. Livro aberto, com abordagem aplicada.
+- Kevin P. Murphy. [*Probabilistic Machine Learning: An Introduction*](https://probml.github.io/pml-book/book1.html), capítulo 1. Base probabilística para decisão, perda e aprendizagem.
+- Trevor Hastie, Robert Tibshirani e Jerome Friedman. [*The Elements of Statistical Learning*](https://hastie.su.domains/ElemStatLearn/), capítulos 2 e 7. Tratamento clássico de generalização, viés e variância.
+
+### Materiais práticos e visuais
+
+- Google for Developers. [Machine Learning Crash Course](https://developers.google.com/machine-learning/crash-course). Curso com vídeos, visualizações interativas e exercícios.
+- scikit-learn. [Underfitting vs. Overfitting](https://scikit-learn.org/stable/auto_examples/model_selection/plot_underfitting_overfitting.html). Exemplo visual reproduzível.
+- scikit-learn. [Learning curves](https://scikit-learn.org/stable/modules/learning_curve.html). Como interpretar scores de treino e validação.
+- Stanford CS229. [Bias–Variance Analysis](https://cs229.stanford.edu/summer2019/BiasVarianceAnalysis.pdf). Notas de aula para aprofundamento matemático.
+
+## 16. Continue a formação
+
+**Próxima aula:** [Aula 02 — Do problema ao experimento: features, target, splits e baseline](./02-framing-dataset-split-baseline.md)
+
+Na próxima etapa, você transformará uma pergunta real em um protocolo mensurável, definindo unidade de análise, instante de predição, features, target, baseline e papéis de treino, validação e teste.
+
+---
+
+**Repositório da formação:** [AI Systems Laboratory](https://github.com/joaopaulomirandamatias/ai-lab)  
+**Série:** Machine Learning clássico · 24 aulas
