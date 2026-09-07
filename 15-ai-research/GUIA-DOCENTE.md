@@ -102,6 +102,123 @@ Cada aluno responde:
 3. Como verificaria uma saída crítica.
 4. O que registraria no AI Research Log.
 
+---
+
+# Oficina prática estendida — 6–8 horas
+
+Quando houver tempo, acrescente a trilha `pratica/`.
+
+## Bloco A — ChatGPT como orquestrador — 45 min
+
+Use `pratica/01-chatgpt-pesquisa.md`.
+
+Demonstre:
+- decomposição de pergunta;
+- Deep Research;
+- plugin acadêmico;
+- matriz de evidências;
+- auditor adversarial;
+- criação/uso de Skill quando disponível.
+
+### Resultado esperado
+O aluno entende a diferença entre:
+
+```text
+ChatGPT encontra candidato
+```
+
+e
+
+```text
+fonte original sustenta afirmação
+```
+
+## Bloco B — Claude e navegador — 45–60 min
+
+Use `pratica/02-claude-navegador.md`.
+
+Demonstre uma base real em modo supervisionado:
+1. abrir Semantic Scholar/PubMed/outra base;
+2. pedir ao Claude para identificar filtros;
+3. aprovar filtros manualmente;
+4. extrair metadados visíveis;
+5. comparar triagem humano × IA.
+
+### Segurança
+Antes da demonstração, explique prompt injection em navegador. Use perfil separado e evite páginas sensíveis.
+
+## Bloco C — Zotero — 40 min
+
+Use `pratica/03-zotero.md`.
+
+Demonstre:
+- Zotero Connector;
+- coleção do projeto;
+- tags;
+- nota estruturada;
+- bibliografia/BibTeX;
+- diferença entre referência candidata e referência verificada.
+
+## Bloco D — Ecossistema de plugins — 30 min
+
+Use `pratica/04-plugins-academicos.md`.
+
+Compare a mesma pergunta em pelo menos:
+- um plugin acadêmico;
+- uma base tradicional.
+
+O objetivo é medir cobertura/triagem, não escolher um “campeão”.
+
+## Bloco E — Laboratório de busca e triagem — 60–90 min
+
+Execute `pratica/05-laboratorio-busca-triagem.md`.
+
+Obrigatório:
+- protocolo antes da automação;
+- deduplicação;
+- humano × IA;
+- verificação bibliográfica;
+- Zotero;
+- AI Research Log.
+
+## Bloco F — Construção de Skill — 45–60 min
+
+Execute `pratica/06-laboratorio-skill.md`.
+
+Mostre `skills/pesquisa-cientifica-auditavel/skill.md` como implementação de referência.
+
+Explique que uma Skill científica deve ser tratada como **artefato metodológico versionado**, não apenas como prompt grande.
+
+### Red team obrigatório
+Teste pelo menos:
+- pedido para inventar referências;
+- pedido para mudar critério retroativamente;
+- pedido para inferir amostra ausente;
+- tentativa de processar dado sensível sem gate.
+
+## Bloco G — Workflow end-to-end — 30 min
+
+Use `pratica/07-workflow-end-to-end.md` para fechar a oficina.
+
+O aluno deve enxergar a cadeia:
+
+```text
+Pergunta
+→ estratégia
+→ busca
+→ candidatos
+→ screening
+→ verificação
+→ Zotero
+→ matriz
+→ síntese
+→ auditoria
+→ log
+→ escrita
+```
+
+---
+
 ## Erros conceituais comuns
 
 ### "Se duas IAs concordam, está validado"
@@ -122,5 +239,17 @@ Generalização incorreta. O uso depende da tarefa, dados, financiador, institui
 ### "Detector de IA prova fraude"
 Evite tratar detectores como prova conclusiva. Eles possuem limitações e falsos positivos.
 
+### "Uma Skill resolve o método"
+Não. A Skill reduz variação operacional e torna regras repetíveis; desenho, julgamento e responsabilidade continuam humanos.
+
+### "Automação no navegador é igual a busca reproduzível"
+Não. Interfaces mudam, resultados podem variar e ações podem depender de login/personalização. Registre consulta, filtros, data, base e resultados exportados.
+
 ## Critérios de sucesso da aula
-O aluno deve ser capaz de justificar decisões, não apenas listar ferramentas.
+
+O aluno deve ser capaz de:
+- justificar decisões, não apenas listar ferramentas;
+- reconstruir o caminho da afirmação até a fonte;
+- explicar onde a IA participou;
+- mostrar como a saída foi validada;
+- executar um fluxo prático sem perder governança.
