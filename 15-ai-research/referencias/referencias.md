@@ -48,20 +48,79 @@
 14. **OSF Registrations.**  
     https://help.osf.io/article/330-welcome-to-registrations
 
-## Ferramentas
+## ChatGPT, Plugins e Skills
 
-15. Elicit — https://elicit.com/
-16. Consensus — https://consensus.app/
-17. Semantic Scholar — https://www.semanticscholar.org/
-18. Scite — https://scite.ai/
-19. ResearchRabbit — https://www.researchrabbit.ai/
-20. Connected Papers — https://www.connectedpapers.com/
-21. OpenAlex — https://openalex.org/
-22. Zotero — https://www.zotero.org/
-23. Rayyan — https://www.rayyan.ai/
-24. ASReview — https://asreview.nl/
-25. VOSviewer — https://www.vosviewer.com/
-26. Bibliometrix — https://www.bibliometrix.org/
+15. **OpenAI. Skills no ChatGPT.**  
+    https://help.openai.com/pt-br/articles/20001066-skills-no-chatgpt
 
-## Nota
-Políticas e interfaces mudam. Antes de uma aula futura, revise principalmente CNPq, ICMJE, periódico-alvo, instituição e termos das ferramentas.
+16. **OpenAI. Plugins no ChatGPT e no Codex.**  
+    https://help.openai.com/pt-br/articles/20001256-plugins-no-chatgpt-e-no-codex
+
+17. **OpenAI. Apps/Plugins no ChatGPT.**  
+    https://help.openai.com/pt-br/articles/11487775
+
+18. **OpenAI. ChatGPT Release Notes — atualizações de Deep Research.**  
+    https://help.openai.com/pt-br/articles/6825453-chatgpt-release-notes
+
+19. **OpenAI Academy. Utilizando habilidades.**  
+    https://openai.com/pt-BR/academy/skills/
+
+## Claude, navegador e Skills
+
+20. **Anthropic. Usar pesquisa no Claude.**  
+    https://support.claude.com/pt/articles/11088861-usar-pesquisa-no-claude
+
+21. **Anthropic. Ativar e usar busca na web.**  
+    https://support.claude.com/pt/articles/10684626-ativar-e-usar-busca-na-web
+
+22. **Anthropic. Comece com Claude no Chrome.**  
+    https://support.claude.com/pt/articles/12012173-comece-com-claude-no-chrome
+
+23. **Anthropic. Use Claude in Chrome com segurança.**  
+    https://support.claude.com/pt/articles/12902428-use-claude-in-chrome-com-seguranca
+
+24. **Anthropic. Como criar habilidades personalizadas.**  
+    https://support.claude.com/pt/articles/12512198-como-criar-habilidades-personalizadas
+
+25. **Anthropic. Usar Skills no Claude.**  
+    https://support.claude.com/pt/articles/12512180-usar-skills-no-claude
+
+## Zotero
+
+26. **Zotero. Adding Items to Zotero.**  
+    https://www.zotero.org/support/adding_items_to_zotero
+
+27. **Zotero Connector.**  
+    https://www.zotero.org/support/connector
+
+28. **Zotero Downloads/Connectors.**  
+    https://www.zotero.org/downloads
+
+29. **Plugins for Zotero.**  
+    https://www.zotero.org/support/plugins
+
+## Ferramentas acadêmicas
+
+30. Elicit — https://elicit.com/
+31. Consensus — https://consensus.app/
+32. Semantic Scholar — https://www.semanticscholar.org/
+33. Scite — https://scite.ai/
+34. ResearchRabbit — https://www.researchrabbit.ai/
+35. Connected Papers — https://www.connectedpapers.com/
+36. OpenAlex — https://openalex.org/
+37. Zotero — https://www.zotero.org/
+38. Rayyan — https://www.rayyan.ai/
+39. ASReview — https://asreview.nl/
+40. VOSviewer — https://www.vosviewer.com/
+41. Bibliometrix — https://www.bibliometrix.org/
+
+## Nota de manutenção
+
+Políticas, plugins e interfaces mudam rapidamente. Antes de uma aula futura:
+1. revise CNPq/ANPD e política institucional;
+2. revise ICMJE/periódico-alvo;
+3. revise disponibilidade de Skills/Plugins no ChatGPT e Claude;
+4. confira permissões e segurança de automação no navegador;
+5. valide versões do Zotero e extensões utilizadas.
+
+Última verificação desta seção prática: **2026-09-07**.
