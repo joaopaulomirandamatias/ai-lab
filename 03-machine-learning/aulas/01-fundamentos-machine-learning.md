@@ -9,6 +9,8 @@
 
 > **Ideia-chave:** treinar um modelo não é o objetivo final. O objetivo é produzir previsões úteis para exemplos que o modelo ainda não viu.
 
+![Capa da Aula 01: Fundamentos de Machine Learning — do problema à generalização](../assets/aula-01/00-capa-fundamentos-machine-learning.png)
+
 ## O que você será capaz de fazer ao final
 
 Ao concluir esta aula, você deverá conseguir:
@@ -73,19 +75,7 @@ Machine Learning pode ser a escolha errada quando:
 
 Na programação tradicional, uma pessoa escreve as regras. Em aprendizagem supervisionada, o algoritmo estima as regras internas — os parâmetros — a partir de exemplos.
 
-```mermaid
-flowchart LR
-    subgraph P["Programação tradicional"]
-        R["Regras humanas"] --> S["Programa"]
-        D1["Dados"] --> S
-        S --> O1["Saída"]
-    end
-    subgraph M["Machine Learning supervisionado"]
-        D2["Dados"] --> T["Algoritmo de treino"]
-        Y["Respostas conhecidas"] --> T
-        T --> MOD["Modelo aprendido"]
-    end
-```
+![Fluxograma comparando programação tradicional e Machine Learning supervisionado](../assets/aula-01/01-programacao-tradicional-vs-machine-learning.png)
 
 Depois do treinamento, o modelo recebe novos dados e produz uma previsão:
 
@@ -140,19 +130,7 @@ Durante o treinamento, o algoritmo aprende parâmetros. O processo experimental 
 | **Autossupervisionado** | O próprio dado gera o sinal de treinamento | “Que parte do dado pode ser prevista a partir de outra?” | Prever tokens ocultos, contrastar representações |
 | **Por reforço** | Recompensas após ações em um ambiente | “Que sequência de ações maximiza o retorno?” | Controle, jogos, robótica |
 
-```mermaid
-flowchart TD
-    ML["Machine Learning"] --> SUP["Supervisionado"]
-    ML --> UNSUP["Não supervisionado"]
-    ML --> OUT["Outros paradigmas"]
-    SUP --> REG["Regressão: valor contínuo"]
-    SUP --> CLA["Classificação: categoria"]
-    UNSUP --> CLU["Clustering"]
-    UNSUP --> DIM["Redução de dimensão"]
-    OUT --> SEMI["Semissupervisionado"]
-    OUT --> SELF["Autossupervisionado"]
-    OUT --> RL["Reforço"]
-```
+![Mapa visual dos cinco paradigmas de aprendizagem](../assets/aula-01/02-paradigmas-de-aprendizagem.png)
 
 ### Uma correção conceitual importante
 
@@ -171,17 +149,7 @@ Essas três etapas têm papéis diferentes:
 2. **Avaliação fora do treino:** exemplos separados ajudam a estimar se o padrão aprendido funciona além da amostra usada no ajuste.
 3. **Inferência:** o modelo já treinado recebe dados novos e produz previsões.
 
-```mermaid
-flowchart LR
-    A["Dados históricos"] --> B["Separação experimental"]
-    B --> C["Treino"]
-    B --> D["Dados não vistos no ajuste"]
-    C --> E["Modelo treinado"]
-    E --> F["Previsões"]
-    D --> F
-    F --> G["Métrica + análise de erros"]
-    G --> H["Estimativa de generalização"]
-```
+![Fluxo de treinamento, avaliação, generalização e inferência](../assets/aula-01/03-treino-avaliacao-generalizacao-inferencia.png)
 
 > A separação correta entre treino, validação e teste será construída passo a passo na Aula 02. Por enquanto, guarde a fronteira essencial: **avaliar nos mesmos exemplos usados para ajustar o modelo mede memória de treino, não generalização**.
 
@@ -256,11 +224,7 @@ O modelo se ajusta muito bem ao treino, inclusive a ruídos e coincidências, ma
 | Erro baixo no treino e bem maior fora | ótimo | ruim | Overfitting |
 | Erro semelhante e aceitável | bom | bom | Ajuste potencialmente adequado |
 
-```mermaid
-flowchart LR
-    U["Pouca flexibilidade<br/>underfitting"] --> O["Complexidade útil"]
-    O --> V["Flexibilidade excessiva<br/>overfitting"]
-```
+![Comparação visual entre underfitting, complexidade útil e overfitting](../assets/aula-01/04-underfitting-ajuste-overfitting.png)
 
 ### E o erro irredutível?
 
