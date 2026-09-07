@@ -1,7 +1,7 @@
 # 15 · IA na Pesquisa Científica
 ## Do Prompt à Ciência Reproduzível
 
-Pacote didático completo para uma aula de 3 horas, extensível para oficina de 4–6 horas.
+Pacote didático completo para uma aula de 3 horas, extensível para **oficina prática de 6–8 horas**.
 
 ### Princípio central
 
@@ -26,7 +26,10 @@ Ao final, o participante deverá conseguir:
 6. construir um fluxo de pesquisa assistida por IA auditável;
 7. utilizar IA em programação e análise sem abrir mão da validação;
 8. preparar uma declaração transparente de uso de IA;
-9. aplicar práticas de revisão sistemática, ciência aberta e reprodutibilidade.
+9. aplicar práticas de revisão sistemática, ciência aberta e reprodutibilidade;
+10. usar ChatGPT, Claude, Zotero e plugins acadêmicos em um workflow integrado;
+11. criar e testar uma **Skill para pesquisa científica auditável**;
+12. fazer triagem assistida em bases de dados mantendo supervisão humana.
 
 ## Estrutura do módulo
 
@@ -38,6 +41,22 @@ Ao final, o participante deverá conseguir:
 │   └── aula-completa.md
 ├── slides/
 │   └── roteiro-slides.md
+├── pratica/
+│   ├── README.md
+│   ├── 01-chatgpt-pesquisa.md
+│   ├── 02-claude-navegador.md
+│   ├── 03-zotero.md
+│   ├── 04-plugins-academicos.md
+│   ├── 05-laboratorio-busca-triagem.md
+│   ├── 06-laboratorio-skill.md
+│   └── 07-workflow-end-to-end.md
+├── skills/
+│   ├── README.md
+│   └── pesquisa-cientifica-auditavel/
+│       ├── skill.md
+│       └── resources/
+│           ├── checklist.md
+│           └── matriz-evidencias.md
 ├── laboratorios/
 │   ├── 01-cacando-alucinacoes.md
 │   ├── 02-busca-evidencias.md
@@ -67,7 +86,7 @@ Ao final, o participante deverá conseguir:
     └── referencias.md
 ```
 
-## Roteiro de 3 horas
+## Roteiro essencial — 3 horas
 
 | Bloco | Tempo | Tema |
 |---|---:|---|
@@ -81,14 +100,46 @@ Ao final, o participante deverá conseguir:
 | Publicação | 15 min | autoria, peer review, declaração |
 | Casos e avaliação | 15 min | decisões de uso e exit ticket |
 
-## Como usar
+## Oficina prática estendida — 6–8 horas
+
+Além do roteiro essencial:
+
+| Bloco | Atividade |
+|---|---|
+| ChatGPT | Deep Research, plugins, matriz de evidências e Skills |
+| Claude | Research, Claude in Chrome e filtragem supervisionada |
+| Zotero | captura via Connector, coleções, notas e BibTeX |
+| Plugins | comparação Consensus/Elicit/SciSpace/Sider Scholar |
+| Skill | criação, upload, testes positivos e red team |
+| Laboratório | busca + deduplicação + screening humano × IA |
+| Workflow final | evidência verificada → Zotero → síntese → log |
+
+Comece por [`pratica/README.md`](pratica/README.md).
+
+## Skill pronta para pesquisa
+
+A Skill [`pesquisa-cientifica-auditavel`](skills/pesquisa-cientifica-auditavel/skill.md) implementa quality gates para:
+- descoberta;
+- screening;
+- extração;
+- auditoria de citações;
+- síntese;
+- revisão metodológica;
+- classificação de dados;
+- AI Research Log.
+
+Ela foi desenhada no formato de Agent Skills para facilitar reutilização em plataformas compatíveis.
+
+## Como usar o pacote
 
 1. Leia `GUIA-DOCENTE.md`.
 2. Use `slides/roteiro-slides.md` para preparar a apresentação.
 3. Entregue `aula/aula-completa.md` como texto-base.
-4. Escolha 2–3 laboratórios conforme a carga horária.
-5. Use os notebooks em Jupyter/Colab.
-6. Encerre com `projeto-final/mini-dossie-pesquisa.md`.
+4. Para a parte operacional, siga `pratica/README.md`.
+5. Escolha 2–3 laboratórios conforme a carga horária.
+6. Use os notebooks em Jupyter/Colab.
+7. Teste a Skill em `skills/pesquisa-cientifica-auditavel/`.
+8. Encerre com `projeto-final/mini-dossie-pesquisa.md`.
 
 ## Mensagem da aula
 
