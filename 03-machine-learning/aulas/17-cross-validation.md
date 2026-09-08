@@ -1,221 +1,333 @@
 # Aula 17 — Cross-validation: estimando generalização sem desperdiçar dados
 
+<!-- mirandastech-aula-v2 -->
+
 **Trilha:** Especialista em IA  
 **Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 16 deste módulo  
-**Objetivo central:** Entender resampling como ferramenta de estimativa e seleção, preservando independência do teste final.
+**Pré-requisito:** [Aula 16 — Classes desbalanceadas](./16-classes-desbalanceadas.md)  
+**Próxima aula:** [Aula 18 — Hyperparameter tuning](./18-hyperparameter-tuning.md)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/17-cross-validation-laboratorio.ipynb)
+
+Imagine um classificador de reinternação treinado com várias consultas de cada paciente. Um K-fold aleatório pode pôr a consulta de março no treino e a de abril do mesmo paciente na validação. A métrica parece excelente porque o modelo reconhece características daquele paciente; em produção, porém, chegam pacientes novos. Em previsão de demanda, embaralhar datas permite um erro ainda mais direto: aprender com dezembro para “validar” em agosto.
+
+Cross-validation (CV) não é apenas repetir treino e calcular uma média. Ela é uma **simulação da fronteira entre o que o sistema conhece e o que deverá generalizar**. A escolha dos folds materializa a pergunta científica. Se a fronteira estiver errada, mais folds e mais casas decimais apenas tornam precisa uma resposta irrelevante.
 
 ## Objetivos de aprendizagem
 
-- Explicar k-fold CV.
-- Usar StratifiedKFold e GroupKFold.
-- Entender TimeSeriesSplit.
-- Distinguir CV de teste final.
-- Calcular média e dispersão das métricas.
+Ao final, você deverá conseguir:
 
-## 1. Por que este tema importa para IA?
+- explicar o que K-fold estima e por que ele não elimina a necessidade do teste externo;
+- escolher entre K-fold, estratificação, grupos e divisão temporal a partir da unidade de generalização;
+- ajustar preprocessing, seleção e reamostragem exclusivamente no treino de cada fold;
+- calcular média, dispersão e agregação ponderada das métricas;
+- distinguir scores por fold de predições out-of-fold (OOF);
+- reconhecer a dependência entre folds e evitar intervalos de confiança ingênuos;
+- auditar sobreposição de entidades, ordem temporal e lacunas operacionais;
+- preparar uma validação reproduzível para a seleção de hiperparâmetros da próxima aula.
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+## Pré-requisitos e vocabulário
 
-O foco desta aula é **entender resampling como ferramenta de estimativa e seleção, preservando independência do teste final.**
+Você deve dominar splits, pipelines, leakage e métricas das Aulas 13–16.
 
-## 2. Ideias fundamentais
+| Termo | Significado operacional |
+|---|---|
+| **fold** | subconjunto usado uma vez para validação em uma rodada |
+| **splitter** | regra que produz índices de treino e validação |
+| **unidade de análise** | linha sobre a qual a métrica é calculada |
+| **unidade de generalização** | entidade, período ou domínio que deve permanecer desconhecido |
+| **iid** | amostras aproximadamente independentes e da mesma distribuição |
+| **OOF** | predição de cada exemplo produzida por um modelo que não o treinou |
+| **gap** | intervalo excluído entre treino e validação temporal |
+| **teste externo** | conjunto reservado e consultado uma única vez após decisões |
 
-### 1. K-fold
+Uma transação pode ser a unidade de análise, enquanto o cliente é a unidade de generalização. Declarar apenas “uma linha por transação” não resolve a dependência entre cinco compras do mesmo cliente.
 
-Os dados são divididos em k partes; cada fold funciona uma vez como validação e as demais como treino.
+## 1. Intuição: várias provas, sempre com matéria inédita
 
-### 2. Estratificação e grupos
+Em um único holdout, o resultado pode depender muito de uma partição afortunada. K-fold divide o conjunto de desenvolvimento em \(K\) blocos. Em cada rodada, treina em \(K-1\) blocos e valida no bloco restante. Ao final, todo exemplo foi usado para validação uma vez e para treino \(K-1\) vezes.
 
-Em classificação, estratificar preserva proporções. Em dados com múltiplas linhas por sujeito/entidade, grupos devem ficar inteiros em um lado do split.
-
-### 3. Tempo
-
-Para previsão temporal, o treinamento não pode usar o futuro para prever o passado. TimeSeriesSplit respeita ordenação.
-
-### 4. Variância da estimativa
-
-Não reporte apenas a média dos folds; dispersão e intervalos ajudam a avaliar estabilidade.
-
-## Aprofundamento — CV estima um procedimento inteiro
-
-Em K-fold, para cada $k$ ajustamos **todo o pipeline** em $D\setminus D_k$ e avaliamos em $D_k$. A média estima o desempenho do procedimento treinado com aproximadamente $(K-1)/K$ dos dados. Os scores dos folds não são observações totalmente independentes porque os conjuntos de treino se sobrepõem; desvio-padrão entre folds é diagnóstico de estabilidade, não um intervalo de confiança clássico automático.
-
-O splitter codifica a hipótese de generalização:
-
-- `KFold`/`StratifiedKFold`: novas amostras da mesma população aproximadamente iid;
-- `GroupKFold`: novos grupos, sem identidade compartilhada;
-- `TimeSeriesSplit`: futuro previsto apenas com passado;
-- splits espaciais ou por site: novos locais.
-
-Escolher o splitter errado não é um detalhe estatístico: muda a pergunta respondida. CV também não protege o teste se o pesquisador usa os resultados para centenas de decisões e reporta apenas a melhor.
-
-## 3. Equação para guardar
-
-$$
-\bar m=\frac{1}{K}\sum_{k=1}^{K}m_k
-$$
-
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
-
-## 4. Exemplo mental
-
-Em dados médicos, todas as consultas do mesmo paciente devem pertencer ao mesmo fold para evitar que identidade do paciente vaze entre treino e validação.
-
-## Exemplo numérico resolvido
-
-Scores de cinco folds: $[0{,}71,0{,}76,0{,}74,0{,}62,0{,}77]$. Média $0{,}72$ e desvio-padrão amostral aproximado $0{,}060$. Reportar apenas 0,72 esconde o fold 0,62. Investigue se ele contém outro período, hospital ou perfil. A variação pode revelar fragilidade estrutural, não apenas “azar”.
-
-## 5. Laboratório em Python / scikit-learn
-
-```python
-from sklearn.model_selection import StratifiedKFold, cross_validate
-
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-
-scores = cross_validate(
-    model,
-    X,
-    y,
-    cv=cv,
-    scoring=["roc_auc", "average_precision"],
-    n_jobs=-1
-)
-
-print(scores["test_roc_auc"].mean())
-print(scores["test_roc_auc"].std())
+```mermaid
+flowchart LR
+    D[Dados disponíveis] --> T[Teste externo lacrado]
+    D --> V[Desenvolvimento]
+    V --> F1[Fold 1 valida]
+    V --> F2[Fold 2 valida]
+    V --> FK[Fold K valida]
+    F1 --> A[Scores e diagnósticos]
+    F2 --> A
+    FK --> A
+    A --> P[Procedimento escolhido]
+    P --> R[Refit no desenvolvimento]
+    R --> T
+    T --> E[Avaliação final única]
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+O objeto avaliado não é somente uma instância já ajustada. É o **procedimento completo**: transformações, estimador, hiperparâmetros fixados, seed quando pertinente e regra de treinamento. Cada rodada precisa reconstruí-lo do zero.
 
-### Investigação adicional
+## 2. K-fold formalmente
 
-No mesmo problema com entidades repetidas e timestamp, compare KFold, StratifiedKFold, GroupKFold e TimeSeriesSplit. Visualize índices de treino/validação. Para cada um, escreva em uma frase qual cenário de produção ele simula.
+Seja o conjunto de desenvolvimento \(D=\{(x_i,y_i)\}_{i=1}^{n}\), particionado em folds disjuntos \(D_1,\ldots,D_K\). Na rodada \(k\):
 
-## Laboratório guiado completo
+1. ajuste o procedimento \(A\) em \(D_{-k}=D\setminus D_k\);
+2. produza previsões para \(D_k\);
+3. calcule a métrica \(m_k=M(y_{D_k},\hat y_{D_k})\).
 
-Simule registros repetidos por entidade e compare split ingênuo com `GroupKFold`.
+A média não ponderada é:
+
+$$
+\bar m = \frac{1}{K}\sum_{k=1}^{K}m_k.
+$$
+
+O desvio-padrão amostral dos folds é:
+
+$$
+s_m=\sqrt{\frac{1}{K-1}\sum_{k=1}^{K}(m_k-\bar m)^2}.
+$$
+
+Aqui, \(K\) é o número de folds, \(m_k\) é o score no fold \(k\), \(\bar m\) é a média e \(s_m\) descreve a variação observada entre partições. Quando os folds têm tamanhos diferentes e a métrica é uma média aditiva por exemplo, use:
+
+$$
+\bar m_w=\frac{\sum_{k=1}^{K}n_km_k}{\sum_{k=1}^{K}n_k},
+$$
+
+em que \(n_k=|D_k|\). Para F1, AUC e outras métricas não aditivas, a média de folds e a métrica recalculada sobre todas as previsões OOF podem divergir; reporte claramente qual agregação foi usada.
+
+### Exemplo resolvido
+
+Considere cinco scores de ROC-AUC: \([0{,}71,0{,}76,0{,}74,0{,}62,0{,}77]\).
+
+$$
+\bar m=\frac{0{,}71+0{,}76+0{,}74+0{,}62+0{,}77}{5}=0{,}72.
+$$
+
+As diferenças em relação à média são \([-0{,}01,0{,}04,0{,}02,-0{,}10,0{,}05]\). A soma dos quadrados é \(0{,}0146\); dividindo por \(K-1=4\) e extraindo a raiz:
+
+$$
+s_m=\sqrt{0{,}0146/4}\approx0{,}0604.
+$$
+
+“\(0{,}72\pm0{,}06\)” resume os folds, mas não é automaticamente um intervalo de confiança de 68%. Os conjuntos de treino se sobrepõem, logo os scores são dependentes. O fold de 0,62 merece inspeção: outro hospital, período ou perfil pode revelar fragilidade estrutural.
+
+### O que a estimativa representa
+
+Cada modelo usa aproximadamente \((K-1)n/K\) exemplos, menos do que o refit final. A CV estima o desempenho do procedimento sob esse tamanho de treino e sob a distribuição induzida pelo splitter. Aumentar \(K\) aproxima o tamanho de treino de \(n\), mas eleva custo e pode aumentar variância; leave-one-out não é automaticamente superior. Cinco ou dez folds são pontos de partida, nunca leis universais.
+
+## 3. O splitter é a hipótese de generalização
+
+Antes de importar uma classe do scikit-learn, complete: **“em produção, preciso generalizar para…”**
+
+| Situação real | Splitter inicial | Restrição indispensável |
+|---|---|---|
+| novas linhas aproximadamente iid, regressão | `KFold` | embaralhar apenas se a ordem não carregar estrutura |
+| novas linhas iid, classificação | `StratifiedKFold` | preservar aproximadamente as proporções de classe |
+| novos pacientes, clientes, documentos ou dispositivos | `GroupKFold` | um grupo inteiro em apenas um lado |
+| classes raras e grupos indivisíveis | `StratifiedGroupKFold` | equilíbrio é aproximado, nunca à custa de quebrar grupos |
+| futuro a partir do passado | `TimeSeriesSplit` ou janela móvel | treino anterior à validação; considerar `gap` |
+| novo hospital, país ou site | `GroupKFold`/`LeaveOneGroupOut` | o grupo deve representar o domínio de implantação |
+
+### 3.1 K-fold e estratificação
+
+`KFold` ignora classes e grupos. Em classificação rara, algum fold pode ficar sem positivos, tornando métricas indefinidas. `StratifiedKFold` preserva aproximadamente a frequência das classes e melhora a estabilidade computacional.
+
+Estratificar, porém, **não cria independência**. Consultas do mesmo paciente continuam correlacionadas. A documentação do scikit-learn 1.9 observa também que a estratificação é uma solução de engenharia: por homogeneizar folds, pode reduzir artificialmente a dispersão aparente. Use-a para viabilizar a métrica, não como prova de incerteza pequena.
+
+### 3.2 Grupos
+
+Em `GroupKFold`, nenhum identificador de grupo aparece simultaneamente em treino e validação. Isso vale mesmo que o identificador não seja uma feature: outras variáveis podem funcionar como assinatura da entidade. A auditoria mínima é:
 
 ```python
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import (GroupKFold, KFold, StratifiedKFold,
-                                     cross_val_score)
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-
-rng = np.random.default_rng(42)
-groups = np.repeat(np.arange(120), 5)
-entity_signal = rng.normal(size=(120, 1))
-X = np.repeat(entity_signal, 5, axis=0) + rng.normal(0, .2, (600,1))
-X = np.c_[X, rng.normal(size=(600,5))]
-y = np.repeat((entity_signal[:,0] > 0).astype(int), 5)
-model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000))
-splitters = {
-    "kfold": KFold(5, shuffle=True, random_state=42),
-    "stratified": StratifiedKFold(5, shuffle=True, random_state=42),
-    "group": GroupKFold(5),
-}
-for name, cv in splitters.items():
-    kwargs = {"groups": groups} if name == "group" else {}
-    s = cross_val_score(model, X, y, cv=cv, scoring="roc_auc", **kwargs)
-    print(name, s.mean(), s.std(), s)
+for train_idx, val_idx in cv.split(X, y, groups):
+    assert set(groups[train_idx]).isdisjoint(groups[val_idx])
 ```
 
-**Entregue:** visualização dos índices; comparação com corte temporal; análise do fold pior; pergunta de generalização respondida por cada splitter.
+`GroupKFold` não garante equilíbrio de classes. Se todos os positivos estiverem concentrados em dois hospitais, não existem cinco folds independentes com positivos sem dividir hospitais. A limitação está nos dados; o algoritmo de split não deve escondê-la.
 
-### Protocolo investigativo obrigatório
+### 3.3 Tempo, horizonte e gap
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+Séries temporais exigem ordem. Em validação de origem móvel, o treino contém apenas passado e a validação representa um horizonte futuro. `TimeSeriesSplit` usa janelas de treino crescentes; `max_train_size` permite janela limitada, e `gap` exclui observações imediatamente anteriores à validação.
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+O gap deve refletir a operação. Se uma feature leva sete dias para consolidar ou rótulos amadurecem após 30 dias, a fronteira precisa respeitar essa latência. Também evite features calculadas retrospectivamente com toda a série, como uma média centrada que inclui o futuro.
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+```mermaid
+flowchart TD
+    Q[Qual é a unidade desconhecida no deploy?] --> I{Linhas iid?}
+    I -- sim, classificação --> S[StratifiedKFold]
+    I -- sim, regressão --> K[KFold]
+    I -- não --> G{Há entidade repetida?}
+    G -- sim --> SG[GroupKFold ou StratifiedGroupKFold]
+    G -- não --> T{Há ordem temporal?}
+    T -- sim --> TS[Split temporal com horizonte e gap]
+    T -- não --> D[Split por domínio ou regra customizada]
+    S --> A[Auditar folds]
+    K --> A
+    SG --> A
+    TS --> A
+    D --> A
+```
 
-## 6. Conexão com o AI Systems Laboratory
+## 4. Todo aprendizado fica dentro do fold
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+O scaler, imputador, encoder, seleção de features, redução de dimensionalidade e reamostragem estimam estado. Se forem ajustados antes da CV, a validação influencia o treino. Use `Pipeline` para que cada `fit` receba somente os índices de treino da rodada.
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+Para oversampling ou SMOTE, a operação ocorre somente no treino de cada fold; validação mantém a prevalência-alvo. Para grupos e tempo, o sampler não pode criar pares que atravessem a fronteira. A mesma regra alcança embeddings aprendidos, vocabulários, agregações históricas e seleção supervisionada.
 
-## 7. Armadilhas comuns
+## 5. Scores por fold e predições OOF
 
-- Fazer preprocessing antes do CV.
-- Ignorar grupos.
-- Usar KFold aleatório em série temporal.
-- Usar o teste como mais um fold.
+`cross_validate` calcula uma ou várias métricas em cada fold e pode devolver tempos, estimadores e índices. `cross_val_predict` devolve uma predição OOF por linha quando o esquema atribui cada exemplo à validação exatamente uma vez.
 
-## 8. Exercícios
+OOF é útil para:
 
-1. Quando usar GroupKFold?
-2. Por que o teste final continua necessário?
-3. Qual problema de usar shuffle em previsão temporal?
-4. Por que reportar desvio dos folds?
+- construir gráficos e analisar erros sem usar previsões in-sample;
+- treinar o segundo nível de stacking sem vazamento;
+- estimar métricas agregadas e auditar subgrupos;
+- preparar uma calibração dentro de outro protocolo de separação.
 
-## Exercícios de aprofundamento e rubrica
+Mas OOF continua pertencendo ao desenvolvimento. Depois de olhar os erros e mudar o procedimento, você se adaptou a esses dados. Ela não substitui o teste externo. Além disso, juntar probabilidades de modelos treinados em folds diferentes não cria um único modelo calibrado.
 
-### Nível A — reconstrução conceitual
+### Média dos folds versus métrica OOF
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+Para loss média com folds iguais, as duas agregações coincidem. Para F1, average precision e AUC, não necessariamente:
 
-### Nível B — cálculo e implementação
+1. **macro entre folds:** calcula a métrica em cada fold e dá peso igual aos cenários;
+2. **ponderada:** dá peso ao número de exemplos quando isso tem interpretação;
+3. **OOF pooled:** reúne todas as previsões e calcula uma métrica global.
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+Escolha antes e reporte as três quando a diferença tiver implicação operacional. Nunca selecione a agregação que favoreceu o modelo depois de ver os resultados.
 
-### Nível C — contraprova experimental
+## 6. CV não é um selo de imparcialidade
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+Os \(K\) scores compartilham muitos exemplos de treino. Portanto, tratá-los como \(K\) observações iid em um teste t ou calcular \(\bar m\pm1{,}96s/\sqrt K\) pode subestimar incerteza. Repetir K-fold mede sensibilidade a diferentes partições, mas as repetições também reutilizam dados.
 
-### Nível D — transferência para sistema real
+Outras ameaças permanecem:
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+- testar centenas de pipelines e reportar apenas o melhor score;
+- ajustar decisões humanas após observar todos os folds;
+- usar grupos, períodos ou duplicatas correlacionados em lados opostos;
+- escolher o splitter porque produziu a melhor métrica;
+- comparar modelos em folds diferentes;
+- ignorar que os dados de implantação pertencem a outro domínio.
 
-### Rubrica de 0 a 4
+Cawley e Talbot mostraram que o próprio critério de seleção pode sofrer overfitting. Na Aula 18, a validação aninhada separará um loop interno de seleção de um loop externo de estimativa. Nesta aula, guarde a fronteira: **CV simples ajuda a desenvolver; o teste externo permanece lacrado**.
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+## 7. Protocolo reproduzível
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+1. Declare unidade de análise, unidade de generalização e instante da predição.
+2. Reserve o teste externo antes de explorar configurações.
+3. Escolha splitter, \(K\), shuffle, seed, horizonte, gap e grupos por hipótese operacional.
+4. Congele os mesmos índices para comparações pareadas.
+5. Coloque todo passo aprendido em `Pipeline`.
+6. Calcule baseline e métricas primária/secundárias em cada fold.
+7. Salve scores, tamanhos, prevalências, grupos e intervalos temporais.
+8. Inspecione o pior fold e erros por domínio.
+9. Refaça o procedimento no desenvolvimento completo.
+10. Consulte o teste apenas após congelar decisões.
 
-## 9. Critério de domínio
+Registre versões do código, dataset e dependências. A seed torna a partição reproduzível; não torna o resultado universal.
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+## 8. Laboratório reproduzível
 
-## 10. Referências principais
+O notebook desta aula contém três experimentos com dados sintéticos e seed fixa:
 
-- Kohavi (1995) — A Study of Cross-Validation and Bootstrap.
-- ISLP, cap. 5 — Resampling Methods.
-- scikit-learn — Cross-validation.
-- Varoquaux et al. — Assessing and tuning brain decoders: cross-validation.
+1. registros repetidos por entidade, comparando split estratificado ingênuo a `GroupKFold`;
+2. visualização de `TimeSeriesSplit` com gap e asserts de causalidade;
+3. pipeline iid com predições OOF, métricas por fold e teste externo único.
 
-## Leitura orientada e fontes verificadas
+A hipótese principal é que um splitter aleatório permitirá ao KNN reconhecer assinaturas de entidades já vistas e inflará a balanced accuracy. Ao manter grupos inteiros fora do treino, a estimativa deverá cair em direção ao desempenho em entidades realmente novas.
 
-- scikit-learn — [Cross-validation: evaluating estimator performance](https://scikit-learn.org/stable/modules/cross_validation.html).
-- James et al. — [ISLP](https://www.statlearning.com/), cap. 5.
-- Hastie, Tibshirani e Friedman — [ESL](https://hastie.su.domains/ElemStatLearn/), cap. 7.
-- Cawley e Talbot (2010) — [Over-fitting in model selection](https://jmlr.org/papers/v11/cawley10a.html).
+## 9. Armadilhas e correções
+
+| Erro | Por que invalida | Correção |
+|---|---|---|
+| escalar antes da CV | estatísticas da validação entram no treino | `Pipeline` ajustado em cada fold |
+| passar `cv=5` sem pensar | aceita a suposição padrão do estimador | instanciar splitter explícito |
+| estratificar linhas de pacientes | equilibra classe, mas vaza identidade | split por paciente |
+| embaralhar tempo | futuro ajuda a prever passado | janelas ordenadas e gap |
+| reportar só a média | esconde fragilidade de domínio | scores, dispersão e pior fold |
+| tratar \(s/\sqrt K\) como erro-padrão iid | folds compartilham treino | declarar dependência e usar desenho apropriado |
+| usar teste como fold adicional | adapta decisões à avaliação | lacrar teste |
+| comparar em folds diferentes | ruído da partição confunde modelos | reutilizar índices |
+
+## 10. Checklist prático
+
+- [ ] A pergunta “generalizar para quem/quando/onde?” está escrita.
+- [ ] Grupos, duplicatas e dependência temporal foram auditados.
+- [ ] Nenhum grupo atravessa treino e validação.
+- [ ] Todo índice de treino temporal precede a validação e o gap é justificável.
+- [ ] Transformações e amostragem ficam dentro do fold.
+- [ ] As mesmas partições comparam os procedimentos.
+- [ ] Métrica primária, regra de agregação e \(K\) foram definidos antes.
+- [ ] Scores por fold, tamanhos e diagnósticos foram preservados.
+- [ ] O teste externo não orientou nenhuma decisão.
+
+## 11. Exercícios com respostas comentadas
+
+### 1. Cinco consultas por paciente
+
+**Pergunta:** a tarefa avalia risco em pacientes novos. Qual splitter usar?
+
+**Resposta:** `GroupKFold` com `patient_id` como grupo. Estratificar consultas não impede que a identidade atravesse a fronteira. Se o rótulo for raro, teste `StratifiedGroupKFold`, aceitando que o equilíbrio é limitado pelos grupos.
+
+### 2. Churn mensal
+
+**Pergunta:** por que `shuffle=True` é inadequado quando se prevê o mês seguinte?
+
+**Resposta:** permite que padrões e transformações do futuro participem do treino. Use origem móvel, horizonte coerente e gap correspondente à latência de dados e rótulos.
+
+### 3. Média manual
+
+**Pergunta:** calcule média e desvio amostral de \([0{,}80,0{,}82,0{,}74,0{,}84]\).
+
+**Resposta:** \(\bar m=0{,}80\). A soma dos desvios quadráticos é \(0{,}0056\); \(s=\sqrt{0{,}0056/3}\approx0{,}0432\). O fold 0,74 deve ser investigado, e \(s\) não é um IC clássico.
+
+### 4. Folds com 90 e 10 exemplos
+
+**Pergunta:** duas losses médias são 0,20 e 0,80. Qual loss por exemplo agregada?
+
+**Resposta:** \((90\cdot0{,}20+10\cdot0{,}80)/100=0{,}26\). A média simples, 0,50, responde a outra pergunta: desempenho médio por fold com peso igual.
+
+### 5. OOF perfeita e teste fraco
+
+**Pergunta:** isso é impossível?
+
+**Resposta:** não. Pode haver vazamento entre entidades, adaptação excessiva às decisões de desenvolvimento ou shift no teste. Audite a fronteira, o pipeline, duplicatas e diferenças de domínio.
+
+### 6. Projeto aplicado
+
+Escolha um dataset do AI Systems Laboratory. Entregue um “contrato de split” com unidade de generalização, diagrama dos folds, asserts de sobreposição, métricas por fold e justificativa do teste externo. A solução é aceitável somente se outra pessoa puder reconstruir exatamente os índices.
+
+## 12. Conexões com IA e sistemas reais
+
+A mesma lógica aparece além do ML tabular:
+
+- em RAG, documentos da mesma fonte ou versões quase duplicadas devem ficar no mesmo lado;
+- em LLMs, templates, autores e benchmarks contaminados podem inflar a avaliação;
+- em agentes, episódios do mesmo usuário ou workflow compartilham contexto;
+- em visão médica, imagens do mesmo paciente não são amostras independentes;
+- em sistemas multiagentes, seeds e cenários devem formar blocos comparáveis.
+
+CV não corrige benchmark contaminado nem distribuição ausente. Ela torna explícito o mecanismo de reamostragem; a validade externa ainda depende de dados representativos.
+
+## Resumo
+
+- Cross-validation estima um procedimento sob uma hipótese de particionamento.
+- K-fold treina \(K\) modelos; cada exemplo valida uma vez e treina \(K-1\) vezes.
+- Estratificação preserva classes, mas não resolve dependência entre entidades.
+- Grupos, tempo, domínio, horizonte e gap devem refletir o deploy.
+- Todo passo que aprende estado precisa ser ajustado dentro do fold.
+- Média, dispersão e OOF respondem perguntas relacionadas, porém não idênticas.
+- Scores de folds são dependentes; não os trate como observações iid.
+- O teste externo continua necessário depois que as decisões forem congeladas.
+
+## Referências técnicas verificadas
+
+- scikit-learn 1.9 — [Cross-validation: evaluating estimator performance](https://scikit-learn.org/stable/modules/cross_validation.html), incluindo pipelines, OOF, estratificação, grupos e séries temporais (consulta em 8 set. 2026).
+- scikit-learn 1.9 — [GroupKFold](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GroupKFold.html) e [TimeSeriesSplit](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html) (consulta em 8 set. 2026).
+- Kohavi, R. (1995) — [A Study of Cross-Validation and Bootstrap for Accuracy Estimation and Model Selection](https://www.ijcai.org/Proceedings/95-2/Papers/016.pdf), IJCAI.
+- Cawley, G. C.; Talbot, N. L. C. (2010) — [On Over-fitting in Model Selection and Subsequent Selection Bias in Performance Evaluation](https://jmlr.org/papers/v11/cawley10a.html), JMLR 11.
+- James et al. — [An Introduction to Statistical Learning](https://www.statlearning.com/), capítulo 5.
+- Hastie, Tibshirani e Friedman — [The Elements of Statistical Learning](https://hastie.su.domains/ElemStatLearn/), capítulo 7.
 
 ## Próxima aula
 
-**Hyperparameter tuning: Grid Search, Random Search e validação aninhada**
+Na [Aula 18](./18-hyperparameter-tuning.md), usaremos os folds como infraestrutura para Grid Search, Random Search e validação aninhada, separando seleção de hiperparâmetros da estimativa de generalização.
