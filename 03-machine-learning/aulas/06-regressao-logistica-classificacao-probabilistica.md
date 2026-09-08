@@ -1,231 +1,503 @@
+<!-- mirandastech-aula-v2 -->
+
 # Aula 06 — Regressão logística e classificação probabilística
 
-**Trilha:** Especialista em IA  
-**Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 05 deste módulo  
-**Objetivo central:** Entender como um modelo linear produz probabilidades de classe por meio da função sigmoide e log-loss.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/06-regressao-logistica-classificacao-probabilistica-laboratorio.ipynb)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+> Um sistema de prevenção a fraudes estima risco de 18% para uma transação e 73% para outra. Esses números não são decisões: bloquear, revisar ou aprovar depende do custo de cada erro e da capacidade operacional. Primeiro precisamos entender como o modelo produz probabilidades; depois, como transformá-las em ações.
 
-## Objetivos de aprendizagem
+Na [Aula 05](05-regularizacao-ridge-lasso-elastic-net.md), adicionamos penalidades a um modelo linear para controlar complexidade. Agora o alvo deixa de ser contínuo e passa a ser binário: fraude ou não fraude, falha ou operação normal, inadimplência ou pagamento. A regressão logística mantém um preditor linear, mas o conecta a uma probabilidade por meio da função sigmoide.
 
-- Interpretar logits e probabilidades.
-- Entender sigmoide e log-odds.
-- Relacionar regressão logística a cross-entropy.
-- Separar probabilidade prevista de decisão por threshold.
-- Interpretar coeficientes em termos de odds.
+Esta aula encerra o bloco de modelos lineares. O foco é o mecanismo probabilístico, a função de perda, o gradiente e a separação entre **estimativa** e **decisão**. Métricas de classificação, curvas ROC/PR e calibração serão aprofundadas nas Aulas 14 e 15.
 
-## 1. Por que este tema importa para IA?
+## Objetivos
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+Ao final, você deverá ser capaz de:
 
-O foco desta aula é **entender como um modelo linear produz probabilidades de classe por meio da função sigmoide e log-loss.**
+- distinguir regressão linear, score, logit, probabilidade e classe;
+- transformar odds em probabilidade e interpretar log-odds;
+- escrever o modelo Bernoulli-logístico e sua função de verossimilhança;
+- derivar a binary cross-entropy e o gradiente $X^T(p-y)/n$;
+- implementar sigmoide e log-loss com estabilidade numérica;
+- interpretar coeficientes como razões de odds condicionais;
+- explicar por que probabilidade prevista e regra de decisão são objetos distintos;
+- escolher um limiar com uma matriz de custos usando apenas validação;
+- usar regularização e padronização dentro de um pipeline;
+- reconhecer separação perfeita, mudança de prevalência e probabilidade mal calibrada;
+- avaliar o modelo final uma única vez no teste reservado.
 
-## 2. Ideias fundamentais
+## Pré-requisitos
 
-### 1. Logit
+- combinação linear, produto matricial e gradiente;
+- probabilidade condicional, Bernoulli, odds e máxima verossimilhança;
+- cross-entropy e log-loss;
+- regularização $L_2$, desenvolvimento, validação e teste;
+- `Pipeline` e prevenção de *data leakage*.
 
-A combinação linear $z=w^Tx+b$ não é probabilidade. A sigmoide converte o logit em valor entre 0 e 1.
+## Vocabulário essencial
 
-### 2. Log-odds
+| Termo | Significado |
+|---|---|
+| classe positiva | evento codificado como $y=1$ |
+| score | valor numérico usado para ordenar casos; não precisa ser probabilidade |
+| logit | preditor linear $z=w^Tx+b$; também é o logaritmo das odds |
+| sigmoide | função que converte qualquer real em valor entre 0 e 1 |
+| odds | razão $p/(1-p)$ entre probabilidade de ocorrer e de não ocorrer |
+| log-odds | logaritmo natural das odds |
+| log-loss/BCE | perda probabilística da classificação binária |
+| limiar | regra que transforma probabilidade em ação ou classe |
+| calibração | concordância entre probabilidades previstas e frequências observadas |
+| prevalência | proporção da classe positiva na população ou amostra |
 
-A regressão logística assume que o logaritmo das odds é linear nas features: $\log(p/(1-p))=w^Tx+b$.
+## 1. Por que não usar regressão linear para um alvo binário?
 
-### 3. Cross-entropy
+Poderíamos ajustar OLS a valores 0 e 1, mas a reta não respeita os limites de uma probabilidade: pode prever $-0{,}3$ ou $1{,}4$. Além disso, a variância de um alvo Bernoulli depende de sua média:
 
-O treinamento por máxima verossimilhança para Bernoulli leva à binary cross-entropy.
+\[
+\operatorname{Var}(Y\mid X=x)=p(x)[1-p(x)].
+\]
 
-### 4. Threshold
+A regressão logística modela uma quantidade não limitada — as log-odds — como função linear das features, e então a transforma em uma probabilidade válida.
 
-O modelo estima score/probabilidade; a regra de decisão pode usar 0.5 ou outro limiar definido pelo custo operacional.
+```mermaid
+flowchart LR
+    X[Features x] --> Z["logit z = wᵀx + b"]
+    Z --> S["sigmoide σ(z)"]
+    S --> P["probabilidade p = P(Y=1|x)"]
+    P --> L["política: comparar p com limiar τ"]
+    L --> A[ação ou classe]
+```
 
-## Aprofundamento — máxima verossimilhança, log-loss e gradiente
+O modelo termina em $p$. A política de decisão começa depois dele. Essa separação permite usar o mesmo modelo com limiares diferentes para revisão manual, bloqueio automático ou priorização.
 
-Para $y_i\in\{0,1\}$ e $p_i=\sigma(w^Tx_i+b)$, a verossimilhança Bernoulli é
+## 2. Do preditor linear à sigmoide
 
-$$
-\prod_i p_i^{y_i}(1-p_i)^{1-y_i}.
-$$
+Para uma observação $x\in\mathbb{R}^p$, calculamos:
 
-Maximizar seu log equivale a minimizar binary cross-entropy:
+\[
+z=w^Tx+b,
+\]
 
-$$
-J(w,b)=-\frac1n\sum_i[y_i\log p_i+(1-y_i)\log(1-p_i)].
-$$
+onde $w$ contém os $p$ coeficientes e $b$ é o intercepto. Como $z$ pode assumir qualquer valor real, aplicamos a função sigmoide:
 
-Usando a derivada da sigmoide e a regra da cadeia, o gradiente simplifica para
+\[
+p=P(Y=1\mid X=x)=\sigma(z)=\frac{1}{1+e^{-z}}.
+\]
 
-$$
-\nabla_w J=\frac1nX^T(p-y),\qquad \frac{\partial J}{\partial b}=\frac1n\sum_i(p_i-y_i).
-$$
+Propriedades úteis:
 
-Essa forma reaparecerá no M5. O modelo aprende log-odds lineares; não significa que as probabilidades estejam automaticamente bem calibradas sob mudança de distribuição. Regularização, prevalência e seleção do dataset importam.
+- $sigma(0)=0{,}5$;
+- se $z\to+\infty$, então $sigma(z)\to1$;
+- se $z\to-\infty$, então $sigma(z)\to0$;
+- $sigma(-z)=1-\sigma(z)$;
+- a derivada é $sigma'(z)=\sigma(z)[1-\sigma(z)]$.
 
-## 3. Equação para guardar
+| Logit $z$ | Probabilidade $sigma(z)$ | Leitura |
+|---:|---:|---|
+| $-4$ | $0{,}018$ | evento pouco provável |
+| $-1$ | $0{,}269$ | abaixo de 50% |
+| $0$ | $0{,}500$ | odds iguais |
+| $1$ | $0{,}731$ | acima de 50% |
+| $4$ | $0{,}982$ | evento muito provável |
 
-$$
-p(y=1\mid x)=\sigma(w^Tx+b)=\frac{1}{1+e^{-(w^Tx+b)}}
-$$
+A sigmoide satura nas extremidades. Uma diferença de uma unidade perto de $z=0$ altera bastante a probabilidade; perto de $z=10$, altera pouco. O efeito de uma feature sobre $p$ depende do ponto em que a observação está.
 
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
+## 3. Odds e log-odds
 
-## 4. Exemplo mental
+As **odds** de um evento são:
 
-Prever inadimplência. O modelo pode estimar 0.18 para um cliente e 0.73 para outro. O threshold de ação deve ser escolhido conforme custo de risco e falso alarme.
+\[
+\operatorname{odds}(p)=\frac{p}{1-p}.
+\]
 
-## Exemplo numérico resolvido
+Se $p=0{,}75$, as odds são $0{,}75/0{,}25=3$: esperamos três ocorrências para cada não ocorrência em uma interpretação de frequências repetidas. Probabilidade e odds não são a mesma coisa.
 
-Com $w=1{,}2$, $x=2$ e $b=-1$, o logit é $z=1{,}4$ e
+Partindo da sigmoide:
 
-$$
-p=\sigma(1{,}4)\approx0{,}802.
-$$
+\[
+p=\frac{1}{1+e^{-z}}
+\quad\Longrightarrow\quad
+\frac{p}{1-p}=e^z
+\quad\Longrightarrow\quad
+\log\left(\frac{p}{1-p}\right)=z.
+\]
 
-Se $y=1$, a loss é $-\log(0{,}802)\approx0{,}221$; se $y=0$, é $-\log(0{,}198)\approx1{,}619$. A previsão confiante recebe penalidade grande quando está errada. Com threshold 0,5 o caso é positivo; com threshold 0,85, negativo. Ranking e política de decisão são etapas distintas.
+Portanto, a hipótese estrutural da regressão logística é:
 
-## 5. Laboratório em Python / scikit-learn
+\[
+\log\left(\frac{p(x)}{1-p(x)}\right)=w^Tx+b.
+\]
+
+Ela não afirma que a probabilidade seja linear nas features. Afirma que as **log-odds** são lineares.
+
+## 4. Interpretação dos coeficientes
+
+Mantendo as outras features constantes, aumentar $x_j$ em uma unidade acrescenta $w_j$ às log-odds. Exponenciando:
+
+\[
+\frac{\operatorname{odds}(x_j+1)}{\operatorname{odds}(x_j)}=e^{w_j}.
+\]
+
+Assim, $e^{w_j}$ é uma razão de odds condicional sob o modelo.
+
+### Exemplo
+
+Se $w_j=0{,}40$, então $e^{0{,}40}\approx1{,}492$. Uma unidade adicional em $x_j$ multiplica as odds por aproximadamente 1,492, mantendo as demais features fixas. Isso representa aumento de 49,2% **nas odds**, não na probabilidade.
+
+Se a probabilidade inicial é 20%, suas odds são 0,25. Multiplicando por 1,492, obtemos odds 0,373 e nova probabilidade:
+
+\[
+p'=\frac{0{,}373}{1+0{,}373}\approx0{,}272.
+\]
+
+O aumento foi de 7,2 pontos percentuais, não 49,2 pontos.
+
+Quando a feature é padronizada, uma unidade significa um desvio-padrão do treino. Isso facilita comparar magnitudes, mas muda a interpretação. Codificação, interações e correlação também afetam coeficientes. Como nos modelos lineares anteriores, associação condicional não identifica causalidade.
+
+## 5. Modelo probabilístico Bernoulli
+
+Para cada observação:
+
+\[
+Y_i\mid X_i=x_i\sim\operatorname{Bernoulli}(p_i),
+\qquad
+p_i=\sigma(w^Tx_i+b).
+\]
+
+A função de probabilidade de uma Bernoulli pode ser escrita como:
+
+\[
+P(Y_i=y_i\mid x_i)=p_i^{y_i}(1-p_i)^{1-y_i},
+\qquad y_i\in\{0,1\}.
+\]
+
+Assumindo observações condicionais independentes, a verossimilhança é:
+
+\[
+L(w,b)=\prod_{i=1}^{n}p_i^{y_i}(1-p_i)^{1-y_i}.
+\]
+
+Produtos de muitas probabilidades podem sofrer *underflow*. Tomamos o log e transformamos produto em soma:
+
+\[
+\log L(w,b)=\sum_{i=1}^{n}left[y_i\log p_i+(1-y_i)\log(1-p_i)\right].
+\]
+
+Maximizar a log-verossimilhança equivale a minimizar sua média negativa, a **binary cross-entropy** ou **log-loss**:
+
+\[
+J(w,b)=-\frac{1}{n}\sum_{i=1}^{n}left[y_i\log p_i+(1-y_i)\log(1-p_i)\right].
+\]
+
+Uma previsão correta e confiante recebe perda pequena. Uma previsão confiante e errada recebe penalidade grande. Isso incentiva o modelo a representar incerteza, não apenas acertar um lado do limiar.
+
+## 6. Estabilidade numérica
+
+Calcular $e^{-z}$ diretamente pode transbordar para logits extremos. Calcular `log(p)` após arredondar $p$ para zero produz `-inf`. Em termos do logit, a perda individual pode ser escrita de modo estável:
+
+\[
+\ell(z,y)=\log(1+e^z)-yz.
+\]
+
+O termo $log(1+e^z)$ é a função *softplus*. Em NumPy, `np.logaddexp(0, z)` computa esse valor de forma estável:
+
+```python
+loss = np.mean(np.logaddexp(0.0, logits) - y * logits)
+```
+
+Recortar probabilidades é aceitável para algumas métricas, mas não substitui uma formulação estável durante otimização.
+
+## 7. O gradiente surpreendentemente simples
+
+Para uma observação, a derivada da BCE em relação ao logit é:
+
+\[
+\frac{\partial \ell}{\partial z}=p-y.
+\]
+
+Uma forma de ver isso é combinar a derivada da BCE em relação a $p$ com $partial p/\partial z=p(1-p)$; os termos se cancelam. Como $z=Xw+b$, para o conjunto completo:
+
+\[
+\nabla_w J=\frac{1}{n}X^T(p-y),
+\qquad
+\frac{\partial J}{\partial b}=\frac{1}{n}\sum_{i=1}^{n}(p_i-y_i).
+\]
+
+O vetor $p-y$ é o erro probabilístico assinado. O gradiente propaga esse erro para cada feature. Essa estrutura reaparecerá em redes neurais e modelos com softmax.
+
+A BCE logística é convexa em $w$ e $b$. Com dados adequados, métodos numéricos encontram o ótimo global. Isso não significa que haja sempre um ótimo finito: na separação perfeita sem regularização, os coeficientes podem crescer indefinidamente enquanto a perda se aproxima de zero.
+
+## 8. Regularização na regressão logística
+
+O conhecimento da Aula 05 continua válido. Com penalidade $L_2$:
+
+\[
+J_{L_2}(w,b)=J(w,b)+\frac{\lambda}{2}\|w\|_2^2.
+\]
+
+O intercepto normalmente não é penalizado. A regularização limita coeficientes, ajuda com colinearidade e evita divergência em casos separáveis.
+
+Em `scikit-learn`, `LogisticRegression` aplica $L_2$ por padrão. Seu parâmetro `C` é inversamente relacionado à força de regularização: `C` maior significa penalidade mais fraca. A convenção exata depende do estimador e da versão; registre ambos. Se as features tiverem escalas diferentes, coloque `StandardScaler` dentro do pipeline.
+
+Não selecione `C` pelo teste. Esse hiperparâmetro deve ser escolhido por validação no desenvolvimento, como `alpha` na aula anterior.
+
+## 9. Probabilidade não é decisão
+
+Uma regra binária usual é:
+
+\[
+\widehat y=
+\begin{cases}
+1,&p\geq\tau,\\
+0,&p<\tau,
+\end{cases}
+
+\]
+
+onde $	au$ é o limiar. O valor 0,5 é apenas uma convenção; ele pode ser inadequado quando classes, custos ou capacidades são assimétricos.
+
+Considere os custos:
+
+| Resultado | Custo no exemplo |
+|---|---:|
+| verdadeiro positivo | 0 |
+| verdadeiro negativo | 0 |
+| falso positivo: revisão desnecessária | 1 |
+| falso negativo: fraude não bloqueada | 5 |
+
+Para um conjunto de validação, o custo médio de um limiar é:
+
+\[
+\widehat C(\tau)=\frac{c_{FP}\,FP(\tau)+c_{FN}\,FN(\tau)}{n_{val}}.
+\]
+
+Escolhemos $	au$ que minimiza esse custo **na validação**, congelamos a política e só então avaliamos o teste. Se a capacidade de revisão for limitada, o problema pode exigir escolher os top-$k$ riscos, não um limiar fixo.
+
+```mermaid
+flowchart TD
+    A[Separar teste] --> B[Desenvolvimento]
+    B --> C[Separar treino e validação ou usar CV]
+    C --> D[Ajustar scaler e modelo no treino]
+    D --> E[Gerar probabilidades na validação]
+    E --> F[Escolher C e limiar por métrica/custo predefinido]
+    F --> G[Reajustar modelo no desenvolvimento completo]
+    G --> H[Avaliar uma única vez no teste com política congelada]
+```
+
+## 10. Calibração: o que significa prever 0,7?
+
+Um modelo está calibrado se, entre casos aos quais atribui probabilidade próxima de 0,7, aproximadamente 70% são positivos em condições comparáveis. Um modelo pode ordenar muito bem os casos e ainda produzir probabilidades ruins.
+
+A log-loss avalia a distribuição probabilística e pune confiança errada. O Brier score calcula o erro quadrático das probabilidades:
+
+\[
+\operatorname{Brier}=\frac{1}{n}\sum_{i=1}^{n}(p_i-y_i)^2.
+\]
+
+Uma curva de confiabilidade agrupa previsões e compara probabilidade média com frequência observada. Porém, poucos dados por faixa produzem estimativas ruidosas; o número e o tipo de bins mudam o gráfico.
+
+Regressão logística costuma oferecer probabilidades razoáveis quando a especificação é adequada, mas calibração não é garantida. Mudança de prevalência, seleção amostral, regularização e relações não lineares podem degradá-la. A Aula 15 tratará diagnóstico e métodos de calibração com o protocolo apropriado.
+
+## 11. Exemplo resolvido passo a passo
+
+Considere $w=1{,}2$, $x=2$ e $b=-1$.
+
+**Passo 1 — logit:**
+
+\[
+z=1{,}2\cdot2-1=1{,}4.
+\]
+
+**Passo 2 — probabilidade:**
+
+\[
+p=\sigma(1{,}4)=\frac{1}{1+e^{-1{,}4}}\approx0{,}8022.
+\]
+
+**Passo 3 — odds:**
+
+\[
+\frac{p}{1-p}\approx\frac{0{,}8022}{0{,}1978}\approx4{,}055.
+\]
+
+Isso também é $e^{1{,}4}\approx4{,}055$.
+
+**Passo 4 — perda se $y=1$:**
+
+\[
+\ell=-\log(0{,}8022)\approx0{,}2204.
+\]
+
+**Passo 5 — perda se $y=0$:**
+
+\[
+\ell=-\log(1-0{,}8022)\approx1{,}6204.
+\]
+
+**Passo 6 — decisão:** com $	au=0{,}5$, a classe é positiva; com $	au=0{,}85$, é negativa. A probabilidade não mudou, apenas a política.
+
+## 12. Implementação segura com `scikit-learn`
 
 ```python
 from sklearn.linear_model import LogisticRegression
-
-clf = LogisticRegression(max_iter=1000)
-clf.fit(X_train, y_train)
-
-proba = clf.predict_proba(X_test)[:, 1]
-pred_30 = (proba >= 0.30).astype(int)
-```
-
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
-
-### Investigação adicional
-
-Implemente sigmoide, BCE e os gradientes em NumPy. Valide cada gradiente com diferenças finitas, treine um dataset binário e compare coeficientes com `LogisticRegression(penalty=None)`. Em seguida varie o threshold e construa uma tabela custo × precision × recall.
-
-## Laboratório guiado completo
-
-Implemente a loss e o gradiente sem autograd e valide com diferenças finitas.
-
-```python
-import numpy as np
-from sklearn.datasets import make_classification
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-X, y = make_classification(n_samples=500, n_features=6, n_informative=4, random_state=42)
-X = StandardScaler().fit_transform(X)
-w = np.zeros(X.shape[1]); b = 0.0
+modelo = make_pipeline(
+    StandardScaler(),
+    LogisticRegression(C=1.0, max_iter=2_000, random_state=20260908),
+)
+modelo.fit(X_treino, y_treino)
 
-def sigmoid(z):
-    z = np.clip(z, -30, 30)
-    return 1/(1+np.exp(-z))
-
-def loss_grad(w, b):
-    p = sigmoid(X @ w + b)
-    eps = 1e-12
-    loss = -np.mean(y*np.log(p+eps) + (1-y)*np.log(1-p+eps))
-    return loss, X.T @ (p-y)/len(y), np.mean(p-y)
-
-for _ in range(3000):
-    loss, dw, db = loss_grad(w, b)
-    w -= 0.1*dw; b -= 0.1*db
-
-h = 1e-5
-numeric = (loss_grad(w + h*np.eye(1, len(w), 0)[0], b)[0]
-           - loss_grad(w - h*np.eye(1, len(w), 0)[0], b)[0])/(2*h)
-print("loss", loss, "grad analítico", dw[0], "grad numérico", numeric)
+probabilidade = modelo.predict_proba(X_validacao)[:, 1]
+classe_operacional = (probabilidade >= limiar_escolhido).astype(int)
 ```
 
-**Entregue:** demonstração algébrica de $dL/dz=p-y$; erro relativo do gradient check; curva da loss; threshold escolhido por custo.
+`predict_proba` entrega probabilidades por classe na ordem de `classes_`. Não presuma que a segunda coluna representa o evento desejado sem verificar `modelo[-1].classes_`.
 
-### Protocolo investigativo obrigatório
+## 13. Armadilhas e erros comuns
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+1. **Chamar logit de probabilidade.** $w^Tx+b$ não está limitado a $[0,1]$.
+2. **Usar regressão linear e recortar as saídas.** Isso não produz o modelo Bernoulli nem a loss correta.
+3. **Escolher limiar no teste.** A política fica superajustada ao conjunto final.
+4. **Assumir que 0,5 é universal.** Custos e capacidade operacional determinam a decisão.
+5. **Interpretar $e^{w_j}$ como aumento percentual da probabilidade.** Ele multiplica odds.
+6. **Ignorar a classe positiva.** Inverter 0 e 1 inverte a interpretação.
+7. **Calcular BCE de forma instável.** Use logits e `logaddexp` ou funções confiáveis.
+8. **Ignorar separação perfeita.** Coeficientes sem penalização podem divergir.
+9. **Padronizar antes do split.** O scaler deve aprender apenas no treino de cada etapa.
+10. **Tratar ranking como calibração.** Ordenar bem não garante probabilidades corretas.
+11. **Confiar em probabilidades após mudança de prevalência.** Monitore o contexto de implantação.
+12. **Inferir causalidade dos coeficientes.** O modelo é associativo sob as variáveis observadas.
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+## 14. Checklist prático
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+- [ ] Defini claramente qual evento é $y=1$?
+- [ ] Declarei unidade de análise e instante da previsão?
+- [ ] Separei teste antes de ajustar modelo, regularização ou limiar?
+- [ ] Todo pré-processamento está dentro da fronteira de treino?
+- [ ] Verifiquei estabilidade numérica da sigmoide e da log-loss?
+- [ ] Selecionei `C` somente no desenvolvimento?
+- [ ] Defini custos ou objetivo operacional antes de escolher o limiar?
+- [ ] Comparei probabilidades contra um baseline de prevalência?
+- [ ] Reportei ao menos log-loss e uma medida de decisão coerente?
+- [ ] Inspecionei confiabilidade e casos confiantes errados?
+- [ ] Registrei seed, versões, coeficientes e política de decisão?
+- [ ] Evitei afirmações causais não sustentadas?
 
-## 6. Conexão com o AI Systems Laboratory
+## 15. Laboratório reproduzível
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+O [notebook da aula](../notebooks/06-regressao-logistica-classificacao-probabilistica-laboratorio.ipynb) gera dados Bernoulli com estrutura conhecida e escalas diferentes. Ele:
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+- separa teste antes de qualquer escolha;
+- implementa sigmoide estável, BCE a partir de logits e gradientes em NumPy;
+- valida o gradiente com diferenças finitas;
+- treina regressão logística por gradiente descendente;
+- compara coeficientes e probabilidades com `LogisticRegression` sem penalização;
+- interpreta razões de odds na escala padronizada;
+- escolhe um limiar por custo apenas na validação;
+- reajusta o pipeline no desenvolvimento e avalia o teste uma única vez;
+- produz uma curva de loss e um diagrama de confiabilidade com texto alternativo;
+- inclui `asserts` para separação, estabilidade, convergência e integridade.
 
-## 7. Armadilhas comuns
+Dependências mínimas: Python 3.10, NumPy 1.24, pandas 2.0, Matplotlib 3.7 e scikit-learn 1.4. A seed fixa é `20260908`; não há download nem credencial.
 
-- Tratar predict() como única saída relevante.
-- Escolher threshold pelo teste final.
-- Chamar score não calibrado de probabilidade sem verificar.
-- Interpretar associação do coeficiente como causalidade.
+## 16. Resumo
 
-## 8. Exercícios
+- regressão logística modela log-odds lineares e produz probabilidade pela sigmoide;
+- probabilidade, score, classe e ação são objetos distintos;
+- máxima verossimilhança Bernoulli leva à binary cross-entropy;
+- o gradiente em relação ao logit é $p-y$;
+- `logaddexp` evita instabilidade numérica na perda;
+- $e^{w_j}$ multiplica odds, não probabilidades;
+- regularização ajuda a controlar coeficientes e separação perfeita;
+- `C` e limiar são escolhidos no desenvolvimento;
+- calibração precisa ser verificada e monitorada;
+- o teste é usado uma única vez, com modelo e política congelados.
 
-1. Calcule a sigmoide de z=0 e interprete.
-2. Qual a diferença entre score, probabilidade e classe?
-3. Por que threshold 0.5 não é universal?
-4. Explique a relação entre regressão logística e cross-entropy.
+## 17. Exercícios
 
-## Exercícios de aprofundamento e rubrica
+### Exercício 1 — probabilidade, odds e logit
 
-### Nível A — reconstrução conceitual
+Para $p=0{,}8$, calcule odds e logit.
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+<details>
+<summary>Resposta comentada</summary>
 
-### Nível B — cálculo e implementação
+As odds são $0{,}8/0{,}2=4$. O logit é $\log 4\approx1{,}3863$. Aplicar a sigmoide a 1,3863 devolve aproximadamente 0,8.
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+</details>
 
-### Nível C — contraprova experimental
+### Exercício 2 — interpretação de coeficiente
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+Um coeficiente vale $-0{,}7$. Qual é sua razão de odds?
 
-### Nível D — transferência para sistema real
+<details>
+<summary>Resposta comentada</summary>
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+$e^{-0{,}7}\approx0{,}497$. Uma unidade adicional multiplica as odds por cerca de 0,497, mantendo as demais features fixas — redução aproximada de 50,3% nas odds. A mudança na probabilidade depende do valor inicial.
 
-### Rubrica de 0 a 4
+</details>
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+### Exercício 3 — BCE
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+Duas observações positivas recebem probabilidades 0,9 e 0,6. Qual delas tem maior perda?
 
-## 9. Critério de domínio
+<details>
+<summary>Resposta comentada</summary>
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+Para $y=1$, a perda é $-\log p$. Temos $-\log(0{,}9)\approx0{,}105$ e $-\log(0{,}6)\approx0{,}511$. A previsão 0,6 tem maior perda porque atribuiu menos probabilidade ao evento observado.
 
-## 10. Referências principais
+</details>
 
-- ISLP, cap. 4 — Classification.
-- Hastie et al. — Linear Methods for Classification.
-- Murphy — Logistic Regression.
-- scikit-learn — LogisticRegression.
+### Exercício 4 — limiar e custo
 
-## Leitura orientada e fontes verificadas
+Por que um falso negativo cinco vezes mais caro que um falso positivo tende a favorecer limiar menor?
 
-- James et al. — [ISLP](https://www.statlearning.com/), cap. 4.
-- Murphy — [PML: An Introduction](https://probml.github.io/pml-book/book1.html), classificação linear e Bernoulli.
-- scikit-learn — [Logistic regression](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression).
-- scikit-learn — [Tuning the decision threshold](https://scikit-learn.org/stable/modules/classification_threshold.html).
+<details>
+<summary>Resposta comentada</summary>
 
-## Próxima aula
+Reduzir o limiar classifica mais casos como positivos, normalmente reduz falsos negativos e aumenta falsos positivos. Se evitar um falso negativo vale muito mais, essa troca pode reduzir custo total. O limiar exato deve ser escolhido em validação representativa, não por intuição nem pelo teste.
 
-**K-Nearest Neighbors: distâncias e maldição da dimensionalidade**
+</details>
+
+### Exercício 5 — separação perfeita
+
+Por que os coeficientes podem crescer sem limite quando uma reta separa perfeitamente as classes?
+
+<details>
+<summary>Resposta comentada</summary>
+
+Multiplicar os coeficientes aumenta a magnitude dos logits mantendo os sinais corretos. As probabilidades se aproximam de 1 para positivos e 0 para negativos, reduzindo continuamente a log-loss, sem que exista um máximo finito da verossimilhança. Regularização torna a solução finita.
+
+</details>
+
+### Exercício 6 — ranking versus calibração
+
+Um modelo atribui scores 0,6 a positivos e 0,4 a negativos em todos os casos. Ele ordena perfeitamente. Está necessariamente calibrado?
+
+<details>
+<summary>Resposta comentada</summary>
+
+Não. Ordenação perfeita diz apenas que positivos recebem scores maiores. Se todos os casos com 0,6 forem positivos, prever 60% subestima a frequência observada de 100%. Ranking e calibração medem propriedades diferentes.
+
+</details>
+
+## 18. Conexões com IA e próxima aula
+
+Classificação logística é a unidade básica de muitos sistemas: uma camada linear seguida de sigmoide aparece em redes neurais binárias; o gradiente $p-y$ é um caso fundamental de aprendizado por cross-entropy; e separar probabilidade de política é essencial em detecção, segurança e triagem assistida por IA.
+
+Na próxima aula, estudaremos [K-Nearest Neighbors](07-knn-distancias-dimensionalidade.md). Em vez de aprender uma fronteira global linear, o KNN decide localmente a partir dos exemplos próximos. Essa mudança tornará explícitos o papel da escala, da métrica e da dimensionalidade.
+
+## Referências técnicas
+
+- Cox, D. R. (1958). [The Regression Analysis of Binary Sequences](https://doi.org/10.1111/j.2517-6161.1958.tb00292.x). *Journal of the Royal Statistical Society: Series B*, 20(2), 215–242.
+- Murphy, K. P. (2022). [Probabilistic Machine Learning: An Introduction](https://probml.github.io/pml-book/book1.html). MIT Press; capítulos sobre modelos lineares e regressão logística.
+- scikit-learn. [Logistic regression](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression). Documentação oficial; consulte a versão instalada para solvers e convenções.
+- scikit-learn. [Tuning the decision threshold for class prediction](https://scikit-learn.org/stable/modules/classification_threshold.html). Documentação oficial.
+- scikit-learn. [Probability calibration](https://scikit-learn.org/stable/modules/calibration.html). Documentação oficial.
+
+## Material complementar
+
+- James, G. et al. [An Introduction to Statistical Learning](https://www.statlearning.com/). Capítulo 4, classificação.
+
