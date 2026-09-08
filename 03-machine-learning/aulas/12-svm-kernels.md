@@ -1,11 +1,14 @@
-# Aula 12 — Support Vector Machines: margem máxima e kernels
+<!-- mirandastech-aula-v2 -->
 
-**Trilha:** Especialista em IA  
-**Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 11 deste módulo  
-**Objetivo central:** Entender classificação por margem e o papel dos support vectors e kernels.
+# Aula 12 — Support Vector Machines: margens e kernels
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/12-svm-kernels-laboratorio.ipynb)
+
+Na [Aula 11](11-gradient-boosting.md), construímos uma fronteira somando pequenas árvores. Uma Support Vector Machine, ou **SVM**, parte de outra pergunta: entre todas as fronteiras que separam duas classes, qual deixa a maior faixa de segurança ao redor da decisão?
+
+Imagine um sistema que classifica peças por duas medições. Vários hiperplanos acertam o treino, mas uma fronteira colada aos exemplos pode mudar de decisão com pequeno ruído do sensor. A SVM procura uma **margem ampla** e permite violações controladas quando a separação perfeita não existe.
+
+> SVM não significa apenas “separar classes”: significa equilibrar largura da margem e violações, usando exemplos críticos — os vetores de suporte — para definir a decisão.
 
 ## Objetivos de aprendizagem
 
@@ -15,11 +18,49 @@
 - Compreender kernel trick conceitualmente.
 - Usar RBF com scaling e tuning correto.
 
-## 1. Por que este tema importa para IA?
+## Pré-requisitos
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+- produto interno, norma, distância e hiperplanos;
+- classificação binária e regularização;
+- [pipelines e prevenção de leakage](03-preprocessamento-pipelines-leakage.md);
+- separação entre desenvolvimento e teste.
 
-O foco desta aula é **entender classificação por margem e o papel dos support vectors e kernels.**
+## Vocabulário
+
+| Termo | Significado |
+|---|---|
+| Hiperplano | Conjunto de pontos que satisfaz \(w^\top x+b=0\). |
+| Função de decisão | Score assinado \(f(x)\); o sinal determina a classe binária. |
+| Margem | Faixa entre os planos de suporte. |
+| Vetor de suporte | Exemplo com coeficiente dual não nulo que participa da decisão. |
+| *Slack* \(\xi_i\) | Quantidade de violação da margem pelo exemplo \(i\). |
+| Hinge loss | Perda \(\max(0,1-yf(x))\). |
+| Kernel | Produto interno calculado em uma representação implícita. |
+| \(C\) | Peso atribuído às violações. |
+| \(\gamma\) | Alcance do kernel RBF. |
+
+## 1. Da reta ao hiperplano
+
+Para \(x\in\mathbb{R}^p\), a fronteira linear é \(f(x)=w^\top x+b\). O vetor \(w\) é perpendicular ao hiperplano, \(b\) o desloca e o sinal de \(f(x)\) determina o lado da decisão.
+
+A distância assinada à fronteira é \(f(x)/\lVert w\rVert\). Multiplicar \(w\) e \(b\) pela mesma constante não muda a fronteira, mas muda o score. A escala canônica da SVM fixa os exemplos mais próximos em \(y_i f(x_i)=1\). Os planos de suporte são \(f(x)=+1\) e \(f(x)=-1\); a largura total entre eles é
+
+\[
+\frac{2}{\lVert w\rVert}.
+\]
+
+Assim, maximizar a margem equivale a minimizar \(\lVert w\rVert\).
+
+```mermaid
+flowchart LR
+    N[Normal w] --> H0["Fronteira f(x)=0"]
+    H0 --> HM["Plano f(x)=-1"]
+    H0 --> HP["Plano f(x)=+1"]
+    HM --> SV1[Vetores de suporte -1]
+    HP --> SV2[Vetores de suporte +1]
+    SV1 --> M["Margem total 2/||w||"]
+    SV2 --> M
+```
 
 ## 2. Ideias fundamentais
 
@@ -39,21 +80,112 @@ Kernels permitem calcular produtos internos em espaços transformados sem constr
 
 O kernel RBF cria fronteiras flexíveis; gamma controla a escala de influência dos pontos.
 
-## Aprofundamento — margem, slack e kernel trick
+## 3. Margem rígida, margem suave e hinge loss
 
-No caso linear soft-margin, a forma primal é
+No caso separável, a margem rígida resolve
 
-$$
-\min_{w,b,\xi}\frac12\|w\|^2+C\sum_i\xi_i
-$$
+\[
+\min_{w,b}\frac12\lVert w\rVert^2
+\quad\text{sujeito a}\quad y_i(w^\top x_i+b)\ge1.
+\]
 
-sujeita a $y_i(w^Tx_i+b)\ge 1-\xi_i$ e $\xi_i\ge0$. Minimizar $\|w\|$ aumenta a margem geométrica; $C$ controla o custo de violações. $C$ alto tenta corrigir mais pontos e pode aumentar variância; $C$ baixo aceita violações para obter margem mais larga.
+Um ponto ruidoso pode tornar as restrições inviáveis. Para dados sobrepostos, introduzimos \(\xi_i\ge0\):
 
-Na formulação dual, exemplos entram por produtos internos. Um kernel $K(x,z)=\langle\phi(x),\phi(z)\rangle$ permite trabalhar implicitamente em outro espaço. No RBF, `gamma` alto cria influência muito local e fronteira flexível; baixo suaviza. Scaling altera todas as distâncias e é obrigatório na maioria dos usos.
+\[
+\min_{w,b,\xi}\frac12\lVert w\rVert^2+C\sum_i\xi_i,
+\qquad y_i(w^\top x_i+b)\ge1-\xi_i.
+\]
 
-`probability=True` costuma ajustar calibração adicional e aumenta custo; não trate a saída de margem como probabilidade sem método apropriado.
+| Slack | Interpretação |
+|---|---|
+| \(\xi_i=0\) | correto, sobre ou além do plano de suporte |
+| \(0<\xi_i<1\) | correto, mas dentro da margem |
+| \(\xi_i=1\) | sobre a fronteira central |
+| \(\xi_i>1\) | classificado incorretamente |
 
-## 3. Equação para guardar
+A forma equivalente usa hinge loss:
+
+\[
+\frac12\lVert w\rVert^2+C\sum_i\max(0,1-y_i f(x_i)).
+\]
+
+Quando \(y_i f(x_i)\ge1\), a perda é zero. Pontos suficientemente corretos deixam de empurrar a fronteira.
+
+- **\(C\) pequeno:** penaliza menos violações, regulariza mais e tende a ampliar a margem;
+- **\(C\) grande:** cobra mais violações, ajusta o treino rigidamente e pode estreitar a margem.
+
+Essa é uma tendência, não uma garantia. O valor adequado depende de escala, ruído, amostra, pesos e kernel.
+
+```mermaid
+flowchart TD
+    A[Escolher C] --> B{C pequeno?}
+    B -- Sim --> C[Mais regularização]
+    C --> D[Margem tende a ampliar]
+    D --> E[Mais violações toleradas]
+    B -- Não --> F[Violações mais caras]
+    F --> G[Ajuste mais rígido ao treino]
+    G --> H[Risco maior com ruído]
+```
+
+## 4. Forma dual e vetores de suporte
+
+No dual, a decisão linear pode ser escrita como
+
+\[
+f(x)=\sum_{i\in SV}\alpha_i y_i\,x_i^\top x+b,
+\]
+
+em que \(SV\) reúne os vetores de suporte. Exemplos com coeficiente zero desaparecem da soma. A fronteira depende dos casos críticos; com kernel, a inferência compara a nova observação aos vetores de suporte. Muitos vetores elevam memória e latência. “Esparsidade” aqui significa usar parte dos exemplos, não necessariamente poucos atributos.
+
+## 5. Kernel trick: linear em outro espaço
+
+Podemos transformar \(x\) em \(\phi(x)\) e ajustar um hiperplano nesse espaço. Como o dual precisa apenas de produtos internos, um kernel calcula
+
+\[
+K(x,z)=\phi(x)^\top\phi(z)
+\]
+
+sem materializar \(\phi\). A decisão torna-se
+
+\[
+f(x)=\sum_{i\in SV}\alpha_i y_i K(x_i,x)+b.
+\]
+
+| Kernel | Fórmula | Hipótese |
+|---|---|---|
+| Linear | \(x^\top z\) | separação aproximadamente linear |
+| Polinomial | \((\gamma x^\top z+r)^d\) | interações até o grau \(d\) |
+| RBF | \(\exp(-\gamma\lVert x-z\rVert^2)\) | similaridade local e radial |
+
+Nem toda similaridade é kernel válido. A matriz de Gram deve ser simétrica e semidefinida positiva.
+
+### Exemplo RBF resolvido
+
+Para \(x=(0,0)\), \(z=(1,1)\) e \(\gamma=0{,}5\):
+
+\[
+\lVert x-z\rVert^2=2,\qquad K(x,z)=e^{-1}\approx0{,}3679.
+\]
+
+Com \(\gamma=2\), a similaridade cai para \(e^{-4}\approx0{,}0183\). \(\gamma\) baixo espalha influência; \(\gamma\) alto cria influência local. \(C\) e \(\gamma\) precisam ser selecionados em conjunto.
+
+## 6. Escala faz parte do modelo
+
+Se `idade` varia de 18 a 80 e `renda_centavos` de 100.000 a 5.000.000, a segunda feature domina a distância. Isso muda as similaridades RBF e a regularização linear.
+
+Padronize com estatísticas aprendidas apenas no treino:
+
+\[
+z_{ij}=\frac{x_{ij}-\mu_j^{(treino)}}{\sigma_j^{(treino)}}.
+\]
+
+Use `Pipeline(StandardScaler(), SVC(...))`. Durante validação cruzada, cada fold ajusta seu próprio scaler. Ajustá-lo antes dos folds é vazamento. No scikit-learn, `gamma="scale"` usa \(1/(p\,\mathrm{Var}(X))\): um ponto inicial dependente dos dados.
+
+## 7. Score não é probabilidade
+
+`decision_function` retorna score de margem. Score 2 não significa 200% nem implica probabilidade fixa. No `SVC`, `probability=True` faz calibração adicional por validação cruzada interna e aumenta o custo. Calibração será estudada na Aula 15.
+
+## 8. Equação para guardar
 
 $$
 K(x,z)=\exp(-\gamma\|x-z\|^2)
@@ -61,77 +193,64 @@ $$
 
 Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
 
-## 4. Exemplo mental
+### Exemplo mental: não linearidade
 
 Duas classes em círculos concêntricos não são linearmente separáveis no espaço original, mas um kernel pode induzir uma separação adequada.
 
-## Exemplo numérico resolvido
+### Exemplo linear resolvido
 
 Em uma dimensão, negativos em $x=-2,-1$ e positivos em $x=1,2$. O hiperplano $w=1,b=0$ separa em zero. Os pontos $-1$ e $1$ satisfazem $y(wx+b)=1$ e são vetores de suporte. A distância de cada plano de suporte ao centro é $1/\|w\|=1$; a largura total da margem é 2.
 
 O ponto $x=0{,}5$ recebe score $0{,}5$ e classe positiva, mas score não é probabilidade calibrada.
 
-## 5. Laboratório em Python / scikit-learn
+### Multiclasse, custo e escolha da implementação
 
-```python
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
+O problema foi formulado para duas classes. O `SVC` do scikit-learn treina internamente classificadores **um contra um**: para (k) classes, são (k(k-1)/2) problemas binários. Já `LinearSVC` usa uma estratégia um contra o restante e uma formulação diferente; por isso seus coeficientes e resultados não precisam coincidir com `SVC(kernel="linear")`.
 
-svm = make_pipeline(
-    StandardScaler(),
-    SVC(kernel="rbf", C=1.0, gamma="scale", probability=True)
-)
-svm.fit(X_train, y_train)
+O `SVC` kernelizado é valioso em bases pequenas e médias, mas seu ajuste cresce pelo menos quadraticamente com o número de amostras na prática. Além disso, a predição depende da quantidade de vetores de suporte. Em dados grandes ou texto esparso, compare `LinearSVC`, `SGDClassifier` ou aproximações de kernel e meça tempo, memória e latência no ambiente real.
+
+## 9. Seleção honesta e laboratório reproduzível
+
+O teste não é painel de tuning. O protocolo é:
+
+```mermaid
+flowchart LR
+    A[Dados] --> T[Teste lacrado]
+    A --> D[Desenvolvimento]
+    D --> CV[Folds estratificados]
+    CV --> P[Pipeline: scaler + SVC]
+    P --> L[Linear: selecionar C]
+    P --> R["RBF: selecionar C e gamma"]
+    L --> S[Escolher pela validação]
+    R --> S
+    S --> F[Reajustar no desenvolvimento]
+    F --> E[Avaliar uma vez no teste]
+    T --> E
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+1. declare unidade, alvo e instante de predição;
+2. reserve o teste por tempo, entidade ou amostragem coerente;
+3. compare baseline, linear e RBF nos mesmos folds;
+4. inclua o scaler dentro do pipeline;
+5. selecione hiperparâmetros apenas no desenvolvimento;
+6. congele tudo, reajuste e abra o teste uma vez.
 
-### Investigação adicional
+A [Aula 18](18-hyperparameter-tuning.md) aprofundará busca aleatória, nested CV e orçamento. Aqui usamos uma grade limitada para compreender o mecanismo.
 
-Em `make_moons`, compare kernel linear e RBF. Faça tuning de `C` e `gamma` em escala logarítmica dentro de pipeline com scaler. Plote número de vetores de suporte, fronteira, CV e custo de inferência. Depois faça nested CV.
+O [notebook da aula](../notebooks/12-svm-kernels-laboratorio.ipynb) inclui:
 
-## Laboratório guiado completo
+- margem linear e vetores de suporte em um caso calculável;
+- hinge loss e efeito de `C`;
+- kernel RBF manual conferido contra o scikit-learn;
+- `make_moons` com teste isolado e folds fixos;
+- comparação linear–RBF dentro de pipeline;
+- reconstrução da decisão pela soma dual;
+- troca de unidades com e sem padronização;
+- fronteiras, contagem de vetores de suporte e asserts.
 
-Faça nested CV para que seleção de $C$ e $\gamma$ não compartilhe dados com a estimativa final.
+Dependências mínimas: Python 3.10, NumPy 1.24, pandas 2.0, Matplotlib 3.7 e scikit-learn 1.3. O laboratório usa `SEED = 20260908`, dados gerados localmente e nenhuma credencial.
 
-```python
-from scipy.stats import loguniform
-from sklearn.datasets import make_moons
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, cross_validate
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
-
-X, y = make_moons(n_samples=700, noise=0.25, random_state=42)
-pipe = make_pipeline(StandardScaler(), SVC(kernel="rbf"))
-search = RandomizedSearchCV(
-    pipe, {"svc__C": loguniform(1e-3, 1e3), "svc__gamma": loguniform(1e-4, 1e2)},
-    n_iter=30, cv=4, scoring="roc_auc", random_state=42, n_jobs=-1
-)
-outer = StratifiedKFold(5, shuffle=True, random_state=123)
-result = cross_validate(search, X, y, cv=outer, scoring="roc_auc", return_estimator=True)
-print(result["test_score"], result["test_score"].mean())
-print([est.best_params_ for est in result["estimator"]])
-```
-
-**Entregue:** mapa $C×\gamma$; score interno versus externo; número de vetores de suporte; custo de treino/inferência; comparação kernel linear/RBF.
-
-### Protocolo investigativo obrigatório
-
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
-
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
-
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
-
-## 6. Conexão com o AI Systems Laboratory
+## 10. Conexão com o AI Systems Laboratory
 
 Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
 - configuração do experimento;
@@ -143,49 +262,88 @@ Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
 
 Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
 
-## 7. Armadilhas comuns
+## 11. Armadilhas comuns
 
-- Usar SVM RBF sem scaling.
-- Interpretar probability=True como probabilidade perfeita.
-- Tunar C/gamma no teste.
-- Usar kernel complexo quando modelo linear já resolve.
+- **RBF sem escala:** uma feature domina a distância.
+- **Scaler fora do pipeline:** folds recebem informação uns dos outros.
+- **\(C\) e \(\gamma\) escolhidos no teste:** a avaliação fica otimista.
+- **\(\gamma\) alto com ruído:** surgem ilhas locais e memorização.
+- **\(C\) alto tratado como confiança:** é penalização, não certeza.
+- **Score tratado como probabilidade:** margem e probabilidade têm significados diferentes.
+- **Muitos vetores de suporte ignorados:** inferência pode ficar cara.
+- **Kernel complexo quando o linear basta:** flexibilidade sem ganho validado.
+- **Acurácia isolada em classe rara:** custos e métricas serão aprofundados nas Aulas 14 e 16.
+- **Split aleatório em processo temporal:** o teste deve imitar produção.
 
-## 8. Exercícios
+### Checklist prático
 
-1. O que são support vectors?
-2. Qual o efeito de C muito alto?
-3. Explique kernel trick sem fórmula.
-4. Por que scaling é importante?
+- [ ] Defini unidade, classe positiva e momento da previsão.
+- [ ] Reservei o teste antes do preprocessing.
+- [ ] Coloquei transformações aprendidas dentro do pipeline.
+- [ ] Comparei baseline e kernel linear antes do RBF.
+- [ ] Busquei \(C\) e \(\gamma\) em escala logarítmica.
+- [ ] Usei os mesmos folds nas comparações.
+- [ ] Registrei seed, versões, grade e critério de escolha.
+- [ ] Contei vetores de suporte e considerei custo de inferência.
+- [ ] Não tratei `decision_function` como probabilidade.
+- [ ] Abri o teste uma única vez após congelar a configuração.
 
-## Exercícios de aprofundamento e rubrica
+## 12. Exercícios com respostas comentadas
 
-### Nível A — reconstrução conceitual
+### 1. Margem
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+Se \(\lVert w\rVert=4\), qual é a largura total?
 
-### Nível B — cálculo e implementação
+**Resposta:** \(2/4=0{,}5\). A fórmula vale na escala canônica dos planos \(f(x)=\pm1\).
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+### 2. Slack
 
-### Nível C — contraprova experimental
+Interprete \(\xi=0{,}4\) e \(\xi=1{,}3\).
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+**Resposta:** o primeiro ponto está correto, mas dentro da margem; o segundo atravessou a fronteira e está incorreto.
 
-### Nível D — transferência para sistema real
+### 3. Hinge loss
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+Calcule a perda quando \(y=+1\) e \(f=0{,}25\).
 
-### Rubrica de 0 a 4
+**Resposta:** \(\max(0,1-0{,}25)=0{,}75\). O sinal está correto, mas a margem foi violada.
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+### 4. RBF
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+Para distância quadrática 3, compare \(\gamma=0{,}1\) e 10.
 
-## 9. Critério de domínio
+**Resposta:** \(e^{-0,3}\) mantém similaridade relevante; \(e^{-30}\) é praticamente zero. O segundo kernel é muito mais local.
+
+### 5. Leakage
+
+Por que ajustar `StandardScaler` antes de `GridSearchCV` é inadequado?
+
+**Resposta:** médias e desvios usam também os folds que deveriam ficar ocultos. O scaler deve integrar o pipeline ajustado dentro de cada fold.
+
+### 6. Vetores de suporte
+
+Dois modelos têm a mesma qualidade de validação, mas usam 80 e 8.000 vetores. O que investigar?
+
+**Resposta:** latência, memória, estabilidade e distribuição dos scores. A quantidade maior encarece a função kernelizada, embora não determine sozinha a escolha.
+
+### 7. Probabilidade
+
+`decision_function=2.4` implica qual probabilidade?
+
+**Resposta:** nenhuma pode ser inferida sem calibração ajustada e validada. O score é margem, não probabilidade.
+
+### Resumo
+
+- A SVM linear escolhe um hiperplano com margem ampla.
+- A margem suave equilibra norma de \(w\) e violações controladas por \(C\).
+- Vetores de suporte são os exemplos com coeficiente dual não nulo.
+- Kernels permitem fronteiras não lineares por produtos internos implícitos.
+- No RBF, \(\gamma\) controla o alcance da similaridade.
+- Escala faz parte do modelo e deve ser aprendida dentro do pipeline.
+- Kernel, \(C\) e \(\gamma\) pertencem à seleção no desenvolvimento.
+- Score não é probabilidade, e muitos vetores elevam o custo.
+
+## 13. Critério de domínio
 
 Você domina esta aula quando consegue:
 1. explicar o conceito sem consultar a documentação;
@@ -193,20 +351,20 @@ Você domina esta aula quando consegue:
 3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
 4. justificar a métrica e o protocolo de validação.
 
-## 10. Referências principais
+## 14. Referências
 
-- Cortes & Vapnik (1995) — Support-Vector Networks.
-- Hastie et al. — Support Vector Machines and Flexible Discriminants.
-- ISLP — Support Vector Machines.
-- scikit-learn — SVM.
+### Fontes técnicas
 
-## Leitura orientada e fontes verificadas
+1. Cortes, C.; Vapnik, V. (1995). [Support-Vector Networks](https://doi.org/10.1007/BF00994018). *Machine Learning*, 20, 273–297.
+2. Boser, B.; Guyon, I.; Vapnik, V. (1992). [A Training Algorithm for Optimal Margin Classifiers](https://doi.org/10.1145/130385.130401). *COLT '92*.
+3. Scikit-learn. [Support Vector Machines — User Guide](https://scikit-learn.org/stable/modules/svm.html). Documentação oficial, consultada em setembro de 2026.
+4. Scikit-learn. [SVC — API Reference](https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html). Documentação oficial, consultada em setembro de 2026.
 
-- Cortes e Vapnik (1995) — [Support-Vector Networks](https://link.springer.com/article/10.1007/BF00994018).
-- Google Research — [registro do artigo Support-Vector Networks](https://research.google/pubs/support-vector-networks/).
-- James et al. — [ISLP](https://www.statlearning.com/), cap. 9.
-- scikit-learn — [Support Vector Machines](https://scikit-learn.org/stable/modules/svm.html).
+### Material complementar
+
+5. James, G. et al. [An Introduction to Statistical Learning](https://www.statlearning.com/). 2ª ed., capítulo 9.
+6. Hastie, T.; Tibshirani, R.; Friedman, J. [The Elements of Statistical Learning](https://hastie.su.domains/ElemStatLearn/). 2ª ed., capítulo 12.
 
 ## Próxima aula
 
-**Métricas de regressão: MAE, MSE, RMSE, R² e erro relativo**
+Na [Aula 13 — Métricas de regressão](13-metricas-regressao.md), mudaremos da construção dos modelos para a pergunta que sustenta qualquer comparação: que erro medimos, em qual unidade e com qual consequência?
