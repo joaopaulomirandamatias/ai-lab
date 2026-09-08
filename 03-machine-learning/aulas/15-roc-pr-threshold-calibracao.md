@@ -1,211 +1,331 @@
 # Aula 15 — ROC, Precision-Recall, thresholds e calibração
 
+<!-- mirandastech-aula-v2 -->
+
 **Trilha:** Especialista em IA  
 **Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 14 deste módulo  
-**Objetivo central:** Separar ranking, threshold e qualidade probabilística.
+**Pré-requisito:** [Aula 14 — Métricas de classificação](./14-metricas-classificacao.md)  
+**Próxima aula:** [Aula 16 — Classes desbalanceadas](./16-classes-desbalanceadas.md)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/15-roc-pr-threshold-calibracao-laboratorio.ipynb)
+
+Na aula anterior, uma matriz de confusão descreveu decisões já tomadas. Mas um classificador costuma produzir primeiro um **score** ou uma **probabilidade**; só depois uma política transforma esse número em ação. Misturar essas etapas leva a perguntas mal formuladas: um modelo pode ordenar os casos perfeitamente e ainda fornecer probabilidades ruins; pode estar bem calibrado e ser inútil para separar positivos de negativos; pode também ser bom, mas operar com um limiar incompatível com o custo real.
+
+Nesta aula, você aprenderá a avaliar separadamente **ranking**, **decisão** e **qualidade probabilística**.
 
 ## Objetivos de aprendizagem
 
-- Construir curvas ROC e PR.
-- Entender AUC como métrica de ranking.
-- Escolher threshold por custo.
-- Avaliar calibração.
-- Entender Brier score e calibration curves.
+Ao final, você deverá conseguir:
 
-## 1. Por que este tema importa para IA?
+- construir e interpretar curvas ROC e Precision-Recall;
+- explicar ROC-AUC como probabilidade de ordenação por pares;
+- distinguir average precision de uma área trapezoidal qualquer;
+- escolher um threshold na validação por custo ou capacidade;
+- avaliar probabilidades com Brier score, log-loss e diagrama de confiabilidade;
+- aplicar calibração sem contaminar a avaliação final;
+- registrar uma política de decisão auditável para um sistema de IA.
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+## Pré-requisitos e vocabulário
 
-O foco desta aula é **separar ranking, threshold e qualidade probabilística.**
+Você deve dominar TP, FP, FN, TN, precision e recall. O vocabulário novo é:
 
-## 2. Ideias fundamentais
+| Termo | Significado operacional |
+|---|---|
+| **score** | número contínuo usado para ordenar casos; não precisa ser probabilidade |
+| **probabilidade prevista** | estimativa em $[0,1]$ que pretende representar frequência condicional |
+| **threshold** ou limiar | valor que converte score em uma decisão binária |
+| **ROC** | curva de TPR contra FPR ao variar o limiar |
+| **PR** | curva de precision contra recall ao variar o limiar |
+| **calibração** | concordância entre probabilidades previstas e frequências observadas |
+| **sharpness** | capacidade de emitir probabilidades afastadas da prevalência sem perder calibração |
 
-### 1. ROC
+## 1. O problema real: triagem de alertas
 
-Varia threshold e plota TPR contra FPR. ROC-AUC mede capacidade de ranking sob uma interpretação probabilística por pares.
+Imagine um detector de incidentes que atribui risco a 100 mil eventos por dia. Três perguntas diferentes aparecem:
 
-### 2. Precision-Recall
+1. **Ranking:** eventos realmente críticos tendem a receber score maior?
+2. **Decisão:** quais eventos devem abrir um chamado, dado o custo dos erros e a capacidade da equipe?
+3. **Probabilidade:** entre eventos previstos com risco de 20%, aproximadamente 20% são críticos?
 
-Mais informativa quando classe positiva é rara e nos interessa a qualidade das detecções positivas.
+Cada pergunta requer métricas próprias.
 
-### 3. Threshold
-
-Threshold é uma política de decisão, não parte intrínseca do ranker. Pode ser adaptado ao contexto.
-
-### 4. Calibração
-
-Se previsões 0.8 ocorrem, aproximadamente 80% desses casos deveriam ser positivos em um modelo bem calibrado.
-
-## Aprofundamento — ranking, política e probabilidade
-
-ROC-AUC pode ser interpretada como a probabilidade de um positivo aleatório receber score maior que um negativo aleatório. Ela é invariante a transformações monotônicas dos scores e, portanto, não mede calibração. Em forte desbalanceamento, muitos TN podem tornar FPR pequeno mesmo com número operacionalmente grande de falsos alarmes; a curva Precision-Recall evidencia a qualidade das detecções positivas. A referência de average precision depende da prevalência.
-
-Threshold é política: selecione-o na validação a partir de custo, capacidade de revisão ou restrições, nunca no teste. Calibração pergunta se eventos previstos com probabilidade $p$ ocorrem aproximadamente com frequência $p$. Brier score e log-loss são proper scoring rules; reliability diagrams complementam o número.
-
-Platt scaling e isotonic regression precisam de dados separados ou cross-validation. Calibrar e avaliar no mesmo conjunto também gera otimismo.
-
-## 3. Equação para guardar
-
-$$
-Brier=\frac{1}{n}\sum_i(p_i-y_i)^2
-$$
-
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
-
-## 4. Exemplo mental
-
-Dois modelos podem ter ROC-AUC semelhante, mas um produzir probabilidades muito mal calibradas, prejudicando decisões baseadas em risco.
-
-## Exemplo numérico resolvido
-
-Probabilidades $[0{,}9,0{,}8,0{,}7,0{,}1]$ e labels $[1,0,1,0]$.
-
-Com threshold 0,75: $TP=1,FP=1,FN=1,TN=1$. Com 0,65: $TP=2,FP=1,FN=0,TN=1$. O ranking não mudou; mudou a política.
-
-O Brier score é
-
-$$
-\frac{(0{,}9-1)^2+(0{,}8-0)^2+(0{,}7-1)^2+(0{,}1-0)^2}{4}=0{,}1875.
-$$
-
-O falso positivo confiante de 0,8 domina a penalidade.
-
-## 5. Laboratório em Python / scikit-learn
-
-```python
-from sklearn.metrics import roc_auc_score, average_precision_score
-from sklearn.calibration import calibration_curve
-
-roc = roc_auc_score(y_test, proba)
-ap = average_precision_score(y_test, proba)
-frac_pos, mean_pred = calibration_curve(y_test, proba, n_bins=10)
-
-print(roc, ap)
+```mermaid
+flowchart LR
+    X[Dados disponíveis no instante da previsão] --> M[Modelo]
+    M --> S[Score contínuo]
+    S --> R[Ranking: ROC-AUC e AP]
+    S --> P[Probabilidade: Brier, log-loss e confiabilidade]
+    S --> T[Threshold definido na validação]
+    T --> D[Decisão: matriz de confusão, custo e capacidade]
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+ROC-AUC e AP não escolhem o limiar. Brier e log-loss não informam quantos alertas cabem na operação. Precision e recall em um ponto não descrevem todo o ranking. Separar as camadas é o primeiro mecanismo de controle.
 
-### Investigação adicional
+## 2. Curva ROC: sensibilidade contra falsos alarmes
 
-Compare dois modelos em ROC-AUC, average precision, Brier, log-loss e curva de calibração. Aplique `CalibratedClassifierCV` e escolha threshold por custo na validação. Confirme que o teste é usado uma vez.
+Para um limiar $t$, predizemos positivo quando $s_i \geq t$. Então:
 
-## Laboratório guiado completo
+$$
+TPR(t)=\frac{TP(t)}{TP(t)+FN(t)},
+\qquad
+FPR(t)=\frac{FP(t)}{FP(t)+TN(t)}.
+$$
 
-Separe ranking, qualidade probabilística e decisão no mesmo conjunto de scores.
+O **true positive rate** é o recall da classe positiva. O **false positive rate** é a fração dos negativos que virou falso alarme. A curva ROC plota $TPR(t)$ no eixo vertical contra $FPR(t)$ no horizontal enquanto $t$ diminui. Com limiar acima de todos os scores, nenhum caso é positivo: $(0,0)$. Abaixo de todos, todos são positivos: $(1,1)$.
 
-```python
-import numpy as np
-from sklearn.calibration import calibration_curve
-from sklearn.metrics import (average_precision_score, brier_score_loss,
-                             log_loss, precision_recall_curve, roc_auc_score)
+### 2.1 ROC-AUC como ranking
 
-rng = np.random.default_rng(42)
-y = rng.binomial(1, 0.12, 2000)
-raw = np.clip(0.05 + 0.65*y + rng.normal(0, 0.18, len(y)), 0.001, 0.999)
-distorted = np.clip(raw**0.35, 0.001, 0.999)  # ranking semelhante, calibração diferente
-for name, p in {"raw": raw, "distorted": distorted}.items():
-    frac, mean = calibration_curve(y, p, n_bins=10, strategy="quantile")
-    precision, recall, thresholds = precision_recall_curve(y, p)
-    print(name, {"roc": roc_auc_score(y,p), "ap": average_precision_score(y,p),
-                 "brier": brier_score_loss(y,p), "logloss": log_loss(y,p)})
-    print("calibração", list(zip(mean, frac)))
+Sem empates, a área sob a ROC tem a interpretação:
+
+$$
+\operatorname{AUC}=P(S^+>S^-),
+$$
+
+em que $S^+$ é o score de um positivo aleatório e $S^-$ o de um negativo aleatório. Com empates, conta-se meio acerto:
+
+$$
+\operatorname{AUC}
+=\frac{1}{n_+n_-}\sum_{i:y_i=1}\sum_{j:y_j=0}
+\left[\mathbb{1}(s_i>s_j)+\frac{1}{2}\mathbb{1}(s_i=s_j)\right].
+$$
+
+Assim, AUC 0,80 significa que um positivo aleatório recebe score maior que um negativo aleatório em cerca de 80% dos pares, não que o classificador tem “80% de acurácia”.
+
+Qualquer transformação estritamente crescente, como $s'=s^3$ para scores positivos, preserva a ordem e a ROC-AUC. Por isso, ROC-AUC **não mede calibração**.
+
+### 2.2 Limites da ROC
+
+Em eventos raros, uma FPR aparentemente pequena pode gerar muitos falsos positivos. Se há 99.000 negativos, FPR de 1% corresponde a 990 alertas falsos. A ROC continua matematicamente correta; ela apenas não mostra diretamente a pureza da fila positiva nem a carga absoluta de trabalho.
+
+## 3. Curva Precision-Recall e average precision
+
+A curva PR usa:
+
+$$
+Precision(t)=\frac{TP(t)}{TP(t)+FP(t)},
+\qquad
+Recall(t)=\frac{TP(t)}{TP(t)+FN(t)}.
+$$
+
+Ela responde: à medida que recuperamos mais positivos, qual fração dos alertas continua correta? Isso costuma ser mais revelador quando a classe positiva é rara e a atenção está nos alertas positivos.
+
+A **average precision** (AP) resume a curva como soma ponderada pelos incrementos de recall:
+
+$$
+AP=\sum_k \left(R_k-R_{k-1}\right)P_k,
+$$
+
+em que $P_k$ e $R_k$ são precision e recall no ponto $k$. Essa definição em degraus não é, em geral, idêntica à integração trapezoidal de precision contra recall. Ao reportar “PR-AUC”, declare qual cálculo foi usado; neste módulo, usaremos `average_precision_score`.
+
+Para um ranking aleatório, a precision esperada é aproximadamente a prevalência $\pi=P(Y=1)$. Logo, AP 0,20 pode ser extraordinária se $\pi=0,01$ e fraca se $\pi=0,40$. Comparações exigem contexto de prevalência.
+
+| Pergunta | Métrica adequada | O que ela não resolve |
+|---|---|---|
+| O modelo ordena positivos acima de negativos? | ROC-AUC | threshold e calibração |
+| A fila positiva permanece útil ao aumentar cobertura? | curva PR e AP | custo específico da operação |
+| Quantos erros ocorrerão com a política escolhida? | matriz de confusão no threshold | qualidade global do ranking |
+| As probabilidades têm significado frequencista? | Brier, log-loss e confiabilidade | capacidade operacional |
+
+## 4. Exemplo resolvido: o ranking não mudou, a política mudou
+
+Considere scores $[0{,}9,0{,}8,0{,}7,0{,}1]$ e rótulos $[1,0,1,0]$.
+
+| Limiar | Predições | TP | FP | FN | TN | Precision | Recall |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 0,75 | $[1,1,0,0]$ | 1 | 1 | 1 | 1 | 0,50 | 0,50 |
+| 0,65 | $[1,1,1,0]$ | 2 | 1 | 0 | 1 | 0,67 | 1,00 |
+
+Os scores e sua ordem são idênticos; portanto ROC-AUC e AP não mudaram. Apenas o threshold — a política — mudou.
+
+Para a AUC, há quatro pares positivo-negativo. Os positivos têm scores 0,9 e 0,7; os negativos, 0,8 e 0,1. Três dos quatro pares estão na ordem correta, então $AUC=3/4=0{,}75$.
+
+## 5. Escolher o threshold é uma decisão
+
+Um threshold deve refletir consequência, não conveniência estatística. Com custos $C_{FP}$ e $C_{FN}$, uma função simples na validação é:
+
+$$
+\widehat C(t)=\frac{C_{FP}FP(t)+C_{FN}FN(t)}{n}.
+$$
+
+Se as probabilidades forem calibradas, os custos das decisões corretas forem zero e não houver outras restrições, agir quando
+
+$$
+\hat p \geq \frac{C_{FP}}{C_{FP}+C_{FN}}
+$$
+
+minimiza o custo esperado por caso. Mas sistemas reais podem ter orçamento, capacidade diária, custos dependentes do caso ou múltiplas ações. Nesses cenários, uma regra como “revisar os 200 maiores riscos” pode ser mais fiel que um limiar fixo.
+
+O protocolo honesto é:
+
+```mermaid
+flowchart TD
+    A[Separar desenvolvimento, validação e teste] --> B[Ajustar modelo no desenvolvimento]
+    B --> C[Gerar scores na validação]
+    C --> D[Fixar métrica, calibrador e threshold por custo/capacidade]
+    D --> E[Congelar política]
+    E --> F[Avaliar uma vez no teste]
+    F --> G[Reportar ranking, probabilidade, decisão e limitações]
 ```
 
-**Entregue:** ROC e PR; reliability diagram; threshold por custo/capacidade; explicação de por que AUC pode ficar parecida enquanto Brier piora.
+Escolher o threshold que maximiza F1 no teste usa o teste como validação. O resultado deixa de ser uma estimativa independente. Se houver poucos dados, use previsões out-of-fold para seleção e reserve ainda assim um teste final quando a decisão for de alto impacto.
 
-### Protocolo investigativo obrigatório
+## 6. Calibração: 0,8 deve significar 80%
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+Idealmente, para todo $p$ relevante:
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+$$
+P(Y=1\mid \hat p=p)=p.
+$$
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+Como valores idênticos raramente se repetem, um **diagrama de confiabilidade** agrupa previsões em bins e compara a probabilidade média com a frequência observada. Pontos abaixo da diagonal indicam, em geral, excesso de confiança; acima, subconfiança. Bins vazios, poucos exemplos e escolhas de binning podem alterar a aparência. Sempre mostre também a quantidade de observações ou a distribuição das probabilidades.
 
-## 6. Conexão com o AI Systems Laboratory
+Calibração sozinha não basta: prever a prevalência para todos pode ser calibrado em média, porém sem discriminação. Queremos probabilidades calibradas e **sharp**, isto é, capazes de se afastar responsavelmente da taxa-base.
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+### 6.1 Brier score e log-loss
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+Para classificação binária:
 
-## 7. Armadilhas comuns
+$$
+BS=\frac{1}{n}\sum_{i=1}^{n}(\hat p_i-y_i)^2,
+$$
 
-- Chamar AUC de accuracy.
-- Assumir que bom ranking implica boa calibração.
-- Escolher threshold no conjunto de teste.
-- Preferir ROC em classe extremamente rara sem olhar PR.
+$$
+LogLoss=-\frac{1}{n}\sum_{i=1}^{n}
+\left[y_i\log(\hat p_i)+(1-y_i)\log(1-\hat p_i)\right].
+$$
 
-## 8. Exercícios
+Aqui, $n$ é o número de casos, $y_i\in\{0,1\}$ é o rótulo e $\hat p_i$ é a probabilidade prevista. Quanto menor, melhor. Ambas são **proper scoring rules**: em expectativa, incentivam reportar a probabilidade verdadeira. A log-loss pune previsões confiantes e erradas de modo especialmente severo.
 
-1. Explique ranking vs decisão.
-2. Quando PR-AUC é mais informativa?
-3. O que significa uma probabilidade calibrada?
-4. Como escolher threshold por custo?
+No exemplo anterior:
 
-## Exercícios de aprofundamento e rubrica
+$$
+BS=\frac{(0{,}9-1)^2+(0{,}8-0)^2+(0{,}7-1)^2+(0{,}1-0)^2}{4}=0{,}1875.
+$$
 
-### Nível A — reconstrução conceitual
+O falso positivo confiante em 0,8 contribui com 0,64 dos 0,75 pontos de erro quadrático somado. Importante: Brier não isola apenas calibração; também reflete resolução/refinamento e incerteza do problema.
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+O **ECE** (expected calibration error) é popular, mas depende dos bins, não é uma proper scoring rule e pode esconder erros compensatórios. Use-o, se necessário, como diagnóstico auxiliar — não como único placar.
 
-### Nível B — cálculo e implementação
+## 7. Recalibração: sigmoid ou isotonic?
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+Um calibrador aprende um mapeamento do score bruto para probabilidade. Ele precisa receber dados que não foram usados para ajustar o modelo base.
 
-### Nível C — contraprova experimental
+| Método | Forma | Pontos fortes | Riscos |
+|---|---|---|---|
+| sigmoid/Platt | função logística paramétrica | estável com amostras menores; preserva ranking sem empates | limitado se a distorção não for sigmoidal |
+| isotonic regression | função monotônica por partes | flexível para distorções não lineares | sobreajusta com poucos dados; cria empates |
+| calibração via CV | previsões out-of-fold | usa dados com eficiência | protocolo e custo computacional mais complexos |
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+No scikit-learn, `CalibratedClassifierCV` automatiza a separação por folds. Para compreender o mecanismo, o laboratório ajusta uma regressão logística unidimensional aos logits de scores distorcidos em um conjunto de calibração separado.
 
-### Nível D — transferência para sistema real
+Recalibrar pode melhorar Brier e log-loss sem alterar ROC-AUC. Isotonic pode alterar levemente métricas de ranking ao produzir empates. Nenhum calibrador corrige falta de sinal, leakage ou mudança de distribuição.
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+## 8. Laboratório reproduzível
 
-### Rubrica de 0 a 4
+O notebook desta aula usa dados sintéticos documentados, `numpy`, `matplotlib` e `scikit-learn`, com seed fixa. Ele:
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+1. confirma AUC manual por pares;
+2. treina uma regressão logística em dados com prevalência baixa;
+3. aplica transformação monotônica que preserva o ranking e degrada probabilidades;
+4. mede ROC-AUC, AP, Brier e log-loss;
+5. ajusta calibração sigmoid somente na validação;
+6. escolhe threshold por custo somente na validação;
+7. avalia a política congelada uma vez no teste;
+8. executa asserts metodológicos e numéricos.
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+Dependências mínimas: Python 3.10, NumPy 1.24, Matplotlib 3.7 e scikit-learn 1.3. Os dados são gerados localmente; não há rede, credenciais nem arquivos externos.
 
-## 9. Critério de domínio
+## 9. Armadilhas e limites
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+- **Chamar AUC de acurácia.** AUC mede ordenação por pares, não acertos em um threshold.
+- **Declarar “PR-AUC” sem definir a integração.** Informe AP ou a regra de área adotada.
+- **Comparar AP entre populações sem registrar prevalência.** A referência muda.
+- **Escolher threshold no teste.** Isso contamina a estimativa final.
+- **Aplicar 0,5 por hábito.** Esse valor só é defensável sob hipóteses específicas de custo e calibração.
+- **Tratar scores como probabilidades.** `decision_function` pode rankear bem e não pertencer a $[0,1]$.
+- **Concluir calibração por um gráfico pequeno.** Relate contagens, incerteza e proper scores.
+- **Calibrar e avaliar nos mesmos casos.** O calibrador também é um modelo e pode sobreajustar.
+- **Ignorar drift.** A prevalência e a relação entre features e target podem mudar após o deploy.
 
-## 10. Referências principais
+## 10. Checklist prático
 
-- Fawcett (2006) — An Introduction to ROC Analysis.
-- Saito & Rehmsmeier (2015) — PR vs ROC for imbalanced data.
-- Niculescu-Mizil & Caruana (2005) — Predicting Good Probabilities.
-- scikit-learn — Probability calibration.
+- [ ] Defini o evento positivo e a unidade de análise.
+- [ ] Separei desenvolvimento, validação/calibração e teste antes de modelar.
+- [ ] Reportei prevalência e um baseline.
+- [ ] Escolhi ROC-AUC e/ou AP de acordo com a pergunta.
+- [ ] Declarei como a área PR foi calculada.
+- [ ] Avaliei Brier, log-loss e confiabilidade quando usei probabilidades.
+- [ ] Especifiquei custos, capacidade ou restrições da decisão.
+- [ ] Fixei calibrador e threshold sem consultar o teste.
+- [ ] Reportei contagens absolutas de TP, FP, FN e TN no teste.
+- [ ] Registrei seed, versões, split, parâmetros e limitações.
 
-## Leitura orientada e fontes verificadas
+## 11. Conexões com IA e sistemas reais
 
-- Fawcett (2006) — [An Introduction to ROC Analysis](https://www.sciencedirect.com/science/article/abs/pii/S016786550500303X).
-- Saito e Rehmsmeier (2015) — [Precision-Recall vs ROC em dados desbalanceados](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0118432).
-- Niculescu-Mizil e Caruana (2005) — [Predicting Good Probabilities](https://dl.acm.org/doi/10.1145/1102351.1102430).
-- scikit-learn — [Probability calibration](https://scikit-learn.org/stable/modules/calibration.html) e [threshold tuning](https://scikit-learn.org/stable/modules/classification_threshold.html).
+As mesmas três camadas aparecem em sistemas modernos. Um reranker de RAG precisa ordenar evidências; um detector de conteúdo inseguro precisa de política de bloqueio; um roteador de modelos precisa estimar risco ou confiança; um agente pode exigir revisão humana acima de determinada probabilidade de dano. Em todos esses casos, uma métrica única esconde decisões distintas.
+
+Para o **AI Systems Laboratory**, registre um artefato com quatro blocos: métrica de ranking, métrica probabilística, política de threshold/capacidade e matriz de custos. Esse contrato será reutilizado no Gate II e, mais adiante, nas avaliações de RAG e agentes.
+
+## 12. Exercícios com respostas comentadas
+
+### 1. Transformação monotônica
+
+Um modelo troca $s$ por $s'=\sqrt{s}$, com $0\leq s\leq1$. O que ocorre com ROC-AUC e calibração?
+
+**Resposta:** a raiz quadrada é estritamente crescente, então preserva a ordem e a ROC-AUC (salvo efeitos numéricos). As probabilidades mudam; em geral a calibração, o Brier e a log-loss também mudam.
+
+### 2. Carga operacional
+
+Há 100 positivos e 9.900 negativos. Em certo threshold, TPR = 0,80 e FPR = 0,02. Calcule TP, FP e precision.
+
+**Resposta:** $TP=80$ e $FP=198$. Logo, $Precision=80/(80+198)\approx0{,}288$. Uma FPR de apenas 2% ainda gera mais falsos do que verdadeiros alertas.
+
+### 3. Limiar por custo
+
+Com probabilidades calibradas, $C_{FP}=1$ e $C_{FN}=9$, qual é o limiar teórico sob as hipóteses simplificadas da aula?
+
+**Resposta:** $t=1/(1+9)=0{,}10$. Acima de 10%, o custo esperado de não agir supera o de agir. Capacidade e outros custos podem mudar a política.
+
+### 4. AP e prevalência
+
+Dois testes produzem AP 0,20. No primeiro, a prevalência é 1%; no segundo, 18%. O resultado tem o mesmo significado?
+
+**Resposta:** não. O ranking aleatório tem precision esperada próxima à prevalência; o ganho sobre a taxa-base é muito maior no primeiro teste. Também é preciso verificar se as populações são comparáveis.
+
+### 5. Protocolo de calibração
+
+Por que ajustar isotonic regression no teste e depois reportar o Brier do mesmo teste é inválido?
+
+**Resposta:** os rótulos do teste influenciaram o calibrador. O conjunto deixou de representar dados não vistos, e o Brier fica otimista. Use calibração separada ou previsões out-of-fold e preserve o teste final.
+
+### 6. Contraprova
+
+Construa um preditor que sempre devolve a prevalência. Ele pode ser calibrado? Ele discrimina?
+
+**Resposta:** se a prevalência for estável, ele pode estar calibrado em média e alcançar o Brier de um baseline climatológico. Porém todos recebem o mesmo score: ROC-AUC 0,5 e nenhuma capacidade de ranking.
+
+## 13. Resumo
+
+- ROC-AUC e AP avaliam **ranking**, sob perspectivas diferentes.
+- Curvas PR expõem diretamente a qualidade dos alertas positivos e dependem da prevalência.
+- Threshold é uma **política de decisão** escolhida por custo, capacidade e restrições.
+- Calibração dá significado frequencista às probabilidades; Brier e log-loss avaliam previsões probabilísticas.
+- Ranking forte não implica calibração, e calibração não implica discriminação.
+- Calibrador e threshold são aprendidos na validação; o teste permanece intocado até a avaliação final.
+
+## 14. Referências verificadas
+
+### Referências técnicas
+
+- Fawcett, T. (2006). [An introduction to ROC analysis](https://doi.org/10.1016/j.patrec.2005.10.010). *Pattern Recognition Letters*, 27(8), 861–874.
+- Saito, T.; Rehmsmeier, M. (2015). [The Precision-Recall Plot Is More Informative than the ROC Plot When Evaluating Binary Classifiers on Imbalanced Datasets](https://doi.org/10.1371/journal.pone.0118432). *PLOS ONE*, 10(3).
+- Niculescu-Mizil, A.; Caruana, R. (2005). [Predicting Good Probabilities with Supervised Learning](https://doi.org/10.1145/1102351.1102430). *ICML*.
+- Gneiting, T.; Raftery, A. E. (2007). [Strictly Proper Scoring Rules, Prediction, and Estimation](https://doi.org/10.1198/016214506000001437). *JASA*, 102(477), 359–378.
+
+### Documentação oficial consultada
+
+- scikit-learn 1.9 (consultado em setembro de 2026): [métricas e scoring](https://scikit-learn.org/stable/modules/model_evaluation.html), [calibração de probabilidades](https://scikit-learn.org/stable/modules/calibration.html) e [ajuste do threshold de decisão](https://scikit-learn.org/stable/modules/classification_threshold.html).
 
 ## Próxima aula
 
-**Classes desbalanceadas: amostragem, pesos e avaliação correta**
+Na [Aula 16](./16-classes-desbalanceadas.md), trataremos prevalência rara, pesos de classe e reamostragem. O pré-requisito é exatamente o que foi construído aqui: medir ranking, probabilidades e decisões sem deixar a prevalência ou o threshold criar uma ilusão de desempenho.
