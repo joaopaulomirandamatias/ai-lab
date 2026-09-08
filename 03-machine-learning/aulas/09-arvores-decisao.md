@@ -1,85 +1,323 @@
+<!-- mirandastech-aula-v2 -->
+
 # Aula 09 — Árvores de decisão: partições, impureza e interpretabilidade
 
-**Trilha:** Especialista em IA  
-**Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 08 deste módulo  
-**Objetivo central:** Entender como árvores particionam o espaço de features e por que profundidade controla complexidade.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/09-arvores-decisao-laboratorio.ipynb)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+Na [Aula 08](08-naive-bayes-probabilidade-condicional.md), classificamos observações combinando evidências probabilísticas sob uma hipótese forte de independência condicional. Agora construiremos decisões por outro princípio: dividir recursivamente o espaço de features em regiões e atribuir uma previsão a cada região.
 
-## Objetivos de aprendizagem
+Árvores conseguem representar interações e relações não lineares sem exigir uma fórmula global. Essa flexibilidade, porém, cobra um preço: uma árvore profunda pode memorizar ruído, e uma pequena mudança na amostra pode alterar sua estrutura. O objetivo desta aula é entender tanto o mecanismo quanto os limites de sua aparente interpretabilidade.
 
-- Interpretar nós, splits e folhas.
-- Entender Gini, entropy e MSE em árvores.
-- Relacionar profundidade a overfitting.
-- Aplicar pruning/regularização.
-- Reconhecer instabilidade de árvores individuais.
+---
 
-## 1. Por que este tema importa para IA?
+## Problema motivador
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+Uma equipe precisa priorizar solicitações técnicas. Há duas features disponíveis no instante da decisão: impacto estimado e urgência. A regra real não é simplesmente “quanto maior, melhor”: um caso deve ser priorizado quando o impacto é muito alto **ou** quando impacto e urgência são simultaneamente moderados. Um modelo linear teria dificuldade para representar essas regiões sem engenharia de features.
 
-O foco desta aula é **entender como árvores particionam o espaço de features e por que profundidade controla complexidade.**
+Uma árvore pode aprender regras como:
 
-## 2. Ideias fundamentais
+1. se `impacto > 8`, encaminhar para prioridade alta;
+2. caso contrário, se `urgencia > 6` e `impacto > 4`, também priorizar;
+3. nos demais casos, manter a fila normal.
 
-### 1. Partições recursivas
+Essas regras são auditáveis, rápidas na inferência e capazes de capturar interações. Mas continuam sendo associações aprendidas dos dados — não políticas causais nem verdades de negócio.
 
-A árvore escolhe regras do tipo $x_j<t$ para dividir dados em regiões progressivamente mais homogêneas.
+## Objetivos
 
-### 2. Impureza
+Ao final, você deverá ser capaz de:
 
-Em classificação, Gini e entropia medem mistura de classes. O split busca maior redução ponderada de impureza.
+1. interpretar raiz, nós internos, ramos, folhas e profundidade;
+2. explicar árvores como partições recursivas e modelos constantes por região;
+3. calcular Gini, entropia e ganho ponderado de um split;
+4. relacionar profundidade e tamanho de folha ao viés e à variância;
+5. aplicar pré-poda e poda por custo-complexidade;
+6. selecionar hiperparâmetros sem consultar o conjunto de teste;
+7. auditar regras, probabilidades nas folhas e estabilidade estrutural;
+8. reconhecer limites de extrapolação, importância por impureza e interpretação causal.
 
-### 3. Overfitting
+### Pré-requisitos
 
-Árvores profundas podem memorizar pequenas irregularidades. max_depth, min_samples_leaf e pruning controlam complexidade.
+- classificação, regressão e generalização;
+- probabilidade de classe, entropia e média;
+- divisão treino–validação–teste e validação cruzada;
+- overfitting, viés e variância;
+- pipelines e prevenção de data leakage.
 
-### 4. Interpretabilidade
+## Vocabulário
 
-Uma árvore pequena é fácil de explicar, mas árvores reais podem crescer e se tornar instáveis. Importância de feature baseada em impureza também possui vieses.
+| Termo | Significado |
+|---|---|
+| raiz | primeiro nó, que recebe toda a amostra de treino |
+| nó interno | região que ainda será dividida por uma regra |
+| split | regra `feature <= limiar` que cria dois filhos |
+| ramo | caminho produzido por uma condição verdadeira ou falsa |
+| folha | região terminal que emite a previsão |
+| profundidade | número de splits entre a raiz e um nó |
+| impureza | medida da mistura de classes ou dispersão do target em um nó |
+| ganho | redução ponderada de impureza obtida por um split |
+| pré-poda | impedir crescimento usando restrições como `max_depth` |
+| pós-poda | crescer a árvore e remover ramos por um critério de complexidade |
+| instabilidade | mudança relevante da árvore diante de pequenas mudanças na amostra |
 
-## Aprofundamento — ganho de impureza e controle de complexidade
+---
 
-Para um nó $S$ e divisão em $S_L,S_R$, o ganho é
+## 1. Intuição: recortar o espaço de features
 
-$$
-Gain=I(S)-\frac{|S_L|}{|S|}I(S_L)-\frac{|S_R|}{|S|}I(S_R).
-$$
+Considere duas features, \(x_1\) e \(x_2\). Uma regra \(x_1 \leq 4{,}5\) traça uma linha vertical e separa o espaço em duas regiões. Em cada lado, uma nova regra pode fazer outro corte. Depois de vários passos, surgem retângulos alinhados aos eixos.
 
-O algoritmo avalia candidatos e escolhe o maior ganho local; isso não garante a árvore globalmente ótima. Features contínuas geram thresholds; categóricas codificadas de forma inadequada podem impor relações artificiais.
+Cada observação percorre um único caminho da raiz até uma folha. Em classificação, a folha armazena a distribuição das classes entre as observações de treino que chegaram ali. Em regressão com erro quadrático, normalmente armazena a média do target.
 
-Árvores sem restrição tendem a criar folhas pequenas e de alta variância. `max_depth`, `min_samples_leaf`, `max_leaf_nodes` e cost-complexity pruning definem regularização estrutural. Uma árvore pequena pode ser inspecionada, mas a estabilidade também importa: pequenas mudanças na amostra podem mudar os primeiros splits.
+```mermaid
+flowchart TD
+    R[Raiz: todas as observações] --> Q{impacto <= 4,5?}
+    Q -->|sim| L1[Folha: prioridade baixa]
+    Q -->|não| U{urgência <= 6,0?}
+    U -->|sim| L2[Folha: prioridade média]
+    U -->|não| L3[Folha: prioridade alta]
+```
 
-## 3. Equação para guardar
+A árvore é, portanto, uma função constante por partes. Ela não aprende uma reta ou curva suave; aprende regiões com previsões constantes. Isso explica sua flexibilidade e também sua dificuldade de extrapolar.
 
-$$
-Gini=1-\sum_k p_k^2
-$$
+### Anatomia e shapes
 
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
+O treino recebe:
 
-## 4. Exemplo mental
+- \(X\in\mathbb{R}^{n\times d}\): \(n\) observações e \(d\) features;
+- \(y\in\{0,\ldots,K-1\}^{n}\) em classificação;
+- \(y\in\mathbb{R}^{n}\) em regressão.
 
-Uma árvore de risco pode primeiro separar renda < 2000, depois idade < 25 e assim construir regiões de decisão.
+Uma regra candidata é \(\theta=(j,t)\), composta pela feature \(j\) e pelo limiar \(t\). Para o conjunto \(S\) de um nó:
 
-## Exemplo numérico resolvido
+\[
+S_L(\theta)=\{(\mathbf{x},y)\in S:x_j\leq t\},\qquad
+S_R(\theta)=S\setminus S_L(\theta).
+\]
 
-Nó pai com 6 positivos e 4 negativos:
+O CART, algoritmo usado pelo `DecisionTreeClassifier` do scikit-learn, constrói árvores binárias: cada split tem exatamente dois filhos.
 
-$$
+## 2. Como escolher um split
+
+Queremos filhos mais homogêneos que o pai. Para uma medida de impureza \(I\), a impureza após o corte é a média ponderada:
+
+\[
+I_{\text{filhos}}(S,\theta)=
+\frac{|S_L|}{|S|}I(S_L)+
+\frac{|S_R|}{|S|}I(S_R).
+\]
+
+O ganho é:
+
+\[
+\operatorname{Gain}(S,\theta)=I(S)-I_{\text{filhos}}(S,\theta).
+\]
+
+- \(|S|\) é o número de observações no nó pai;
+- \(|S_L|\) e \(|S_R|\) são os tamanhos dos filhos;
+- o peso impede que um filho minúsculo e puro pareça artificialmente excelente.
+
+O algoritmo examina features e limiares candidatos e escolhe, naquele nó, o maior ganho. A decisão é **gulosa e local**: não há garantia de que a sequência resulte na menor ou melhor árvore global.
+
+## 3. Impureza em classificação
+
+Se \(p_k\) é a proporção da classe \(k\) em um nó, duas medidas comuns são:
+
+### Índice de Gini
+
+\[
+Gini(S)=1-\sum_{k=1}^{K}p_k^2
+=\sum_{k=1}^{K}p_k(1-p_k).
+\]
+
+Gini vale zero em uma folha pura. Para duas classes igualmente frequentes, vale \(0{,}5\), seu máximo no caso binário.
+
+### Entropia
+
+\[
+H(S)=-\sum_{k=1}^{K}p_k\log_2 p_k,
+\]
+
+com a convenção \(0\log 0=0\). Em duas classes, a entropia varia de zero a um bit. Ela mede a incerteza sobre o rótulo de uma observação sorteada no nó.
+
+| Critério | Folha pura | Máximo binário | Observação |
+|---|---:|---:|---|
+| Gini | 0 | 0,5 | padrão frequente; cálculo simples |
+| Entropia | 0 | 1 bit | conecta árvores à teoria da informação |
+| Erro de classificação | 0 | 0,5 | pouco sensível para escolher splits; útil como noção de erro |
+
+Gini e entropia frequentemente escolhem árvores parecidas, mas não são idênticos. O critério é um hiperparâmetro; não se deve declarar um vencedor universal.
+
+### Exemplo resolvido: ganho de Gini
+
+Um nó pai contém seis positivos e quatro negativos:
+
+\[
 Gini_{pai}=1-0{,}6^2-0{,}4^2=0{,}48.
-$$
+\]
 
-Um split gera folha esquerda com 4 positivos/0 negativos e direita com 2 positivos/4 negativos. A impureza ponderada é
+Um split produz:
 
-$$
-\frac4{10}(0)+\frac6{10}\left[1-(1/3)^2-(2/3)^2\right]\approx0{,}267.
-$$
+- esquerda: quatro positivos e nenhum negativo, logo \(Gini_L=0\);
+- direita: dois positivos e quatro negativos, logo
 
-Logo, o ganho é $0{,}48-0{,}267=0{,}213$. Compare candidatos pelo ganho, mas valide a árvore completa fora da amostra.
+\[
+Gini_R=1-\left(\frac{2}{6}\right)^2-
+\left(\frac{4}{6}\right)^2=\frac{4}{9}\approx0{,}4444.
+\]
 
-## 5. Laboratório em Python / scikit-learn
+A impureza ponderada é:
+
+\[
+I_{filhos}=\frac{4}{10}(0)+\frac{6}{10}\left(\frac{4}{9}\right)
+=0{,}2667.
+\]
+
+Portanto:
+
+\[
+Gain=0{,}48-0{,}2667=0{,}2133.
+\]
+
+O cálculo compara splits no treino; ele não prova que a árvore completa generalizará.
+
+## 4. Probabilidades nas folhas
+
+Se uma folha recebe 30 observações da classe 0 e 70 da classe 1, a estimativa empírica é:
+
+\[
+\widehat P(Y=1\mid \mathbf{x}\text{ cai na folha})=\frac{70}{100}=0{,}7.
+\]
+
+Todos os pontos na região recebem a mesma probabilidade. Uma folha com uma única observação produz probabilidade 0 ou 1, frequentemente confiante demais. `min_samples_leaf` regulariza não apenas a geometria, mas também a granularidade dessas estimativas.
+
+Probabilidade de folha não é automaticamente calibrada. Calibração será aprofundada na Aula 15; aqui, trate folhas pequenas como sinal de incerteza estrutural.
+
+## 5. Árvores de regressão
+
+Para target contínuo e critério de erro quadrático, um nó prevê a média:
+
+\[
+\bar y_S=\frac{1}{|S|}\sum_{i\in S}y_i,
+\]
+
+e sua impureza pode ser escrita como:
+
+\[
+MSE(S)=\frac{1}{|S|}\sum_{i\in S}(y_i-\bar y_S)^2.
+\]
+
+O split procura reduzir a soma ponderada desses erros. O resultado é uma função em degraus. Fora do intervalo observado, a árvore tende a repetir o valor de uma folha extrema; ela não continua uma tendência. Em problemas que exigem extrapolação, isso é uma limitação decisiva.
+
+## 6. Crescimento, overfitting e viés–variância
+
+Uma árvore sem restrições pode continuar dividindo até obter folhas muito pequenas. No treino, o erro cai; fora da amostra, a variância cresce porque regras passam a reagir a acidentes específicos daquela amostra.
+
+| Controle | Efeito principal | Risco quando restritivo demais |
+|---|---|---|
+| `max_depth` | limita número de decisões por caminho | underfitting de interações profundas |
+| `min_samples_split` | exige amostras para tentar dividir um nó | mantém nós heterogêneos |
+| `min_samples_leaf` | garante suporte mínimo em cada folha | suaviza demais regiões legítimas |
+| `max_leaf_nodes` | limita diretamente o número de regiões | representação grosseira |
+| `min_impurity_decrease` | aceita apenas ganhos mínimos | ignora melhorias pequenas, porém reais |
+| `ccp_alpha` | poda ramos pelo custo-complexidade | árvore excessivamente curta |
+
+Esses mecanismos regularizam a estrutura. Seus valores devem ser escolhidos na validação, nunca procurando o melhor resultado no teste.
+
+```mermaid
+flowchart LR
+    D[Dados de desenvolvimento] --> CV[Folds de validação cruzada]
+    CV --> C[Candidatos de profundidade, folha e alpha]
+    C --> M[Métrica média e dispersão]
+    M --> S[Escolher configuração]
+    S --> F[Reajustar no desenvolvimento completo]
+    T[Teste reservado] --> E[Uma avaliação final]
+    F --> E
+    E --> R[Relatar resultado e limitações]
+```
+
+### Pré-poda e pós-poda
+
+Pré-poda impede o crescimento quando uma condição é atingida. Pós-poda começa com uma árvore maior e remove subárvores cuja melhoria não compensa a complexidade.
+
+Na poda por custo-complexidade, escolhe-se a árvore \(T\) que minimiza:
+
+\[
+R_\alpha(T)=R(T)+\alpha|\widetilde T|.
+\]
+
+- \(R(T)\) é o risco empírico ponderado nas folhas;
+- \(|\widetilde T|\) é o número de folhas;
+- \(\alpha\geq0\) penaliza complexidade.
+
+Com \(\alpha=0\), não há penalidade adicional. À medida que \(\alpha\) cresce, ramos precisam justificar sua existência por uma redução maior do risco. No scikit-learn, esse parâmetro é `ccp_alpha`.
+
+## 7. Um protocolo experimental honesto
+
+Uma avaliação defensável segue esta ordem:
+
+1. defina unidade de análise, target e instante de predição;
+2. separe o teste de acordo com a estrutura real — aleatório, temporal ou por grupo;
+3. mantenha o teste lacrado;
+4. compare com um baseline simples;
+5. selecione `max_depth`, `min_samples_leaf` e `ccp_alpha` nos folds de desenvolvimento;
+6. examine média e dispersão, não apenas o melhor fold;
+7. reajuste a configuração escolhida em todo o desenvolvimento;
+8. avalie uma vez no teste e registre a decisão.
+
+Árvores geralmente não precisam de padronização: uma transformação estritamente crescente preserva a ordem dos valores e, portanto, os candidatos a partição. Isso não as torna imunes a preprocessing nem leakage. Imputação, codificação categórica e seleção de features ainda precisam aprender somente no treino de cada fold.
+
+O `DecisionTreeClassifier` do scikit-learn não aceita categorias nominais de forma nativa. Converter categorias sem ordem em inteiros pode criar cortes artificiais como `cidade <= 3`. Use uma representação apropriada dentro do pipeline e avalie o custo de alta cardinalidade.
+
+## 8. Interpretabilidade com limites
+
+Uma árvore pequena permite seguir o caminho de uma observação e produzir uma explicação local fiel ao próprio modelo. Isso é útil para depuração e auditoria. Ainda assim, quatro cautelas são essenciais.
+
+### Regra preditiva não é regra causal
+
+Se a raiz divide por idade, isso significa que o corte reduziu impureza naquela amostra. Não significa que alterar idade causaria a previsão desejada, nem que a feature deva virar uma política operacional.
+
+### Estabilidade faz parte da explicação
+
+Duas features correlacionadas podem oferecer ganhos quase iguais. Uma pequena mudança nos dados faz uma ocupar a raiz e a outra desaparecer. Uma explicação não é robusta apenas porque cabe em um diagrama.
+
+### Importância por impureza pode enviesar
+
+`feature_importances_` soma reduções de impureza atribuídas a cada feature. Features contínuas ou de alta cardinalidade oferecem muitos candidatos de corte e podem receber importância exagerada. A Aula 20 tratará métodos de interpretação e avaliação fora da amostra.
+
+### Visualização não elimina complexidade
+
+Uma árvore com milhares de nós é tecnicamente transparente, mas cognitivamente opaca. Interpretabilidade envolve tamanho, estabilidade, dados de referência e finalidade da explicação.
+
+## 9. Instabilidade: um exemplo conceitual
+
+Suponha que `impacto` e `perda_estimada` sejam fortemente correlacionados. Na amostra A, o maior ganho da raiz vem de `impacto <= 4,8`; na amostra bootstrap B, vem de `perda_estimada <= 910`. As duas árvores podem ter desempenho semelhante, embora contem histórias diferentes.
+
+Isso caracteriza alta variância estrutural. Regularização pode reduzir, mas não eliminar, o fenômeno. Na [Aula 10](10-random-forest-bagging.md), veremos como agregar árvores treinadas em amostras e subconjuntos de features reduz a variância preditiva. Nesta aula, basta diagnosticar a árvore individual.
+
+## 10. Laboratório reproduzível
+
+O notebook usa dados sintéticos bidimensionais para tornar as fronteiras visíveis. O protocolo:
+
+1. reserva o teste antes de qualquer seleção;
+2. confirma manualmente o ganho de Gini;
+3. compara profundidades nos mesmos folds estratificados;
+4. seleciona regularização por validação cruzada;
+5. inspeciona regras e fronteiras;
+6. mede a estabilidade do split raiz com bootstrap apenas no desenvolvimento;
+7. confirma invariância a uma mudança positiva de escala;
+8. abre o teste uma única vez.
+
+Dependências mínimas:
+
+```text
+numpy>=1.26
+pandas>=2.2
+matplotlib>=3.8
+scikit-learn>=1.4
+```
+
+O conjunto é gerado com seed fixa `20260908`; não depende de rede, arquivos externos ou credenciais. As células possuem `asserts` para confirmar propriedades metodológicas e resultados centrais.
+
+### Código mínimo
 
 ```python
 from sklearn.tree import DecisionTreeClassifier
@@ -87,129 +325,121 @@ from sklearn.tree import DecisionTreeClassifier
 tree = DecisionTreeClassifier(
     max_depth=4,
     min_samples_leaf=10,
-    random_state=42
+    ccp_alpha=0.001,
+    random_state=20260908,
 )
-tree.fit(X_train, y_train)
+tree.fit(X_dev, y_dev)
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+Esse bloco é apenas o ajuste. A evidência vem da seleção nos folds, da comparação com baseline, da avaliação reservada e da auditoria de estabilidade.
 
-### Investigação adicional
+## 11. Armadilhas e erros comuns
 
-Treine profundidades 1–20 e registre score de treino, CV, número de folhas e menor folha. Extraia `cost_complexity_pruning_path`, escolha `ccp_alpha` por CV e teste estabilidade dos primeiros splits em cinco amostras bootstrap.
+- **Deixar crescer e reportar treino.** Pureza no treino pode ser memorização.
+- **Escolher profundidade no teste.** Isso transforma o teste em validação e otimiza o relatório.
+- **Usar uma árvore enorme como explicação.** Fidelidade formal não implica compreensão humana.
+- **Interpretar split como causal.** O algoritmo encontra associação preditiva.
+- **Confiar cegamente em `feature_importances_`.** Muitos limiares e correlações distorcem a atribuição.
+- **Codificar categoria nominal como número ordinal.** O limiar passa a representar uma ordem inexistente.
+- **Afirmar que árvore dispensa pipeline.** Features podem exigir imputação, encoding e seleção sem vazamento.
+- **Ignorar folhas pequenas.** Elas geram previsões frágeis e probabilidades extremas.
+- **Esperar extrapolação.** Previsões constantes por região não prolongam tendências.
+- **Fixar a seed e chamar isso de estabilidade.** Reprodutibilidade repete a execução; estabilidade testa perturbações dos dados.
 
-## Laboratório guiado completo
+## 12. Checklist prático
 
-Observe o caminho de overfitting e depois aplique poda por complexidade.
+- [ ] Declarei a unidade de análise e o instante de predição.
+- [ ] Reservei o teste antes de escolher hiperparâmetros.
+- [ ] Registrei baseline, seed, folds e métrica.
+- [ ] Comparei treino e validação para diagnosticar overfitting.
+- [ ] Controlei profundidade e suporte mínimo das folhas.
+- [ ] Selecionei `ccp_alpha` apenas no desenvolvimento.
+- [ ] Inspecionei número de nós, folhas e profundidade efetiva.
+- [ ] Verifiquei categorias, ausentes e leakage no pipeline.
+- [ ] Testei estabilidade com reamostragem.
+- [ ] Evitei interpretar importância ou regra como causal.
+- [ ] Abri o teste apenas para a avaliação final.
+- [ ] Registrei limitações e condições de uso.
 
-```python
-from sklearn.datasets import load_breast_cancer
-from sklearn.model_selection import StratifiedKFold, cross_validate
-from sklearn.tree import DecisionTreeClassifier
+## 13. Resumo
 
-X, y = load_breast_cancer(return_X_y=True)
-cv = StratifiedKFold(5, shuffle=True, random_state=42)
-for depth in [1, 2, 3, 4, 6, 10, None]:
-    tree = DecisionTreeClassifier(max_depth=depth, min_samples_leaf=3, random_state=42)
-    s = cross_validate(tree, X, y, cv=cv, scoring="balanced_accuracy", return_train_score=True)
-    print(depth, round(s["train_score"].mean(), 3), round(s["test_score"].mean(), 3))
+- Árvores aprendem regras binárias que particionam recursivamente o espaço de features.
+- Cada folha produz uma previsão constante: proporção de classe ou resumo do target.
+- Gini, entropia e MSE quantificam heterogeneidade; o split maximiza sua redução ponderada.
+- CART é guloso: escolhe o melhor corte local, não a árvore globalmente ótima.
+- Profundidade excessiva e folhas pequenas aumentam variância e overfitting.
+- Pré-poda e custo-complexidade controlam a estrutura, com hiperparâmetros escolhidos na validação.
+- Árvores não exigem escala padronizada, mas continuam sujeitas a preprocessing incorreto e leakage.
+- Uma árvore pequena pode ser auditável, porém regras, importâncias e estrutura podem ser instáveis e não causais.
+- O teste reservado serve para uma avaliação final, depois da seleção.
 
-path = DecisionTreeClassifier(random_state=42).cost_complexity_pruning_path(X, y)
-print("primeiros alphas", path.ccp_alphas[:10])
-```
+## 14. Exercícios com respostas comentadas
 
-**Entregue:** curva profundidade × treino/CV; árvore final; cálculo manual de um ganho Gini; estabilidade do primeiro split em bootstraps.
+### 1. Gini de uma folha 80/20
 
-### Protocolo investigativo obrigatório
+Calcule o índice.
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+**Resposta:**
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+\[
+1-0{,}8^2-0{,}2^2=1-0{,}64-0{,}04=0{,}32.
+\]
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+A folha não é pura, mas é menos impura que uma folha 50/50.
 
-## 6. Conexão com o AI Systems Laboratory
+### 2. Por que ponderar os filhos?
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+**Resposta:** sem pesos, um filho puro com uma única observação poderia compensar indevidamente um filho grande e heterogêneo. A ponderação mede a impureza esperada de uma observação que atravessa o split.
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+### 3. O que ocorre quando `max_depth` cresce muito?
 
-## 7. Armadilhas comuns
+**Resposta:** o erro de treino tende a cair, mas folhas menores passam a capturar ruído. O viés pode diminuir enquanto a variância aumenta; a validação pode piorar.
 
-- Deixar árvore crescer sem controle.
-- Confundir regra aprendida com regra causal.
-- Confiar cegamente em feature_importances_.
-- Ignorar instabilidade sob pequenas perturbações.
+### 4. Uma árvore precisa de `StandardScaler`?
 
-## 8. Exercícios
+**Resposta:** em geral, não. Multiplicar uma feature por uma constante positiva preserva sua ordenação e apenas transforma os limiares. Ainda são necessários cuidados com ausentes, categorias, seleção e leakage.
 
-1. Calcule Gini para uma folha 80/20.
-2. O que acontece quando max_depth cresce muito?
-3. Por que árvore individual pode ter alta variância?
-4. Dê um exemplo de split de uma feature contínua.
+### 5. Calcule uma probabilidade de folha
 
-## Exercícios de aprofundamento e rubrica
+Uma folha contém 18 exemplos positivos e 12 negativos. Qual a probabilidade empírica positiva?
 
-### Nível A — reconstrução conceitual
+**Resposta:** \(18/(18+12)=0{,}6\). O valor é compartilhado por toda a região e sua confiabilidade depende do suporte e da representatividade da folha.
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+### 6. Por que uma árvore reproduzível pode ser instável?
 
-### Nível B — cálculo e implementação
+**Resposta:** a seed fixa reproduz o mesmo ajuste sobre os mesmos dados. Instabilidade pergunta se pequenas mudanças na amostra produzem outra árvore. São propriedades diferentes.
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+### 7. Desenhe um protocolo
 
-### Nível C — contraprova experimental
+Você recebeu dados trimestrais e quer prever inadimplência do trimestre seguinte. Como selecionar profundidade?
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+**Resposta:** reserve os períodos finais como teste; use validação temporal apenas nos períodos anteriores; escolha profundidade e demais controles nesses folds; reajuste no desenvolvimento e faça uma avaliação final no período reservado. Um split aleatório misturaria passado e futuro.
 
-### Nível D — transferência para sistema real
+### 8. Contraprova experimental
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+Treine uma árvore irrestrita e outra regularizada em várias amostras bootstrap. Compare score, feature e limiar da raiz.
 
-### Rubrica de 0 a 4
+**Resposta esperada:** a irrestrita costuma ajustar melhor o treino; a validação e a estrutura podem variar mais. O resultado exato depende dos dados, por isso reporte frequências e dispersões em vez de uma anedota.
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
-
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
-
-## 9. Critério de domínio
+## Critério de domínio
 
 Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
 
-## 10. Referências principais
+1. calcular manualmente ganho de Gini;
+2. explicar como um ponto percorre uma árvore;
+3. implementar seleção sem tocar no teste;
+4. justificar pelo menos dois controles de complexidade;
+5. distinguir reprodutibilidade, estabilidade e interpretabilidade;
+6. identificar afirmações preditivas que não autorizam conclusão causal.
 
-- Breiman et al. — Classification and Regression Trees.
-- ISLP — Tree-Based Methods.
-- Hastie et al. — Trees.
-- scikit-learn — Decision Trees.
+## Referências técnicas
 
-## Leitura orientada e fontes verificadas
-
-- Breiman et al. — *Classification and Regression Trees* (CART), 1984.
-- James et al. — [ISLP](https://www.statlearning.com/), cap. 8.
-- Hastie, Tibshirani e Friedman — [ESL](https://hastie.su.domains/ElemStatLearn/), cap. 9.
-- scikit-learn — [Decision Trees](https://scikit-learn.org/stable/modules/tree.html).
+- Breiman, Friedman, Olshen e Stone — [*Classification and Regression Trees*](https://www.taylorfrancis.com/books/mono/10.1201/9781315139470/classification-regression-trees-leo-breiman-jerome-friedman-olshen-charles-stone) (CART), publicado originalmente em 1984.
+- scikit-learn — [Decision Trees: formulação, critérios e recomendações práticas](https://scikit-learn.org/stable/modules/tree.html).
+- scikit-learn — [Minimal Cost-Complexity Pruning](https://scikit-learn.org/stable/auto_examples/tree/plot_cost_complexity_pruning.html).
+- James, Witten, Hastie, Tibshirani e Taylor — [An Introduction to Statistical Learning](https://www.statlearning.com/), capítulo sobre métodos baseados em árvores.
+- Hastie, Tibshirani e Friedman — [The Elements of Statistical Learning](https://hastie.su.domains/ElemStatLearn/), capítulo 9.
 
 ## Próxima aula
 
-**Bagging e Random Forest: reduzindo variância com ensembles**
+Na [Aula 10 — Bagging e Random Forest](10-random-forest-bagging.md), combinaremos árvores treinadas com perturbações de amostras e features. A meta será reduzir a variância da árvore individual sem perder sua capacidade de modelar relações não lineares.
