@@ -1,216 +1,359 @@
 # Aula 19 — Feature engineering e seleção de variáveis
 
+<!-- mirandastech-aula-v2 -->
+
 **Trilha:** Especialista em IA  
 **Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 18 deste módulo  
-**Objetivo central:** Criar representações úteis sem vazar target e selecionar features de forma compatível com validação.
+**Pré-requisito:** [Aula 18 — Hyperparameter tuning](./18-hyperparameter-tuning.md)  
+**Próxima aula:** [Aula 20 — Interpretabilidade de modelos](./20-interpretabilidade-modelos.md)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/19-feature-engineering-selection-laboratorio.ipynb)
 
-## Objetivos de aprendizagem
+> Feature engineering é a tradução de conhecimento sobre o problema para uma representação que o modelo consegue aprender. Seleção de variáveis decide quais coordenadas dessa representação chegam ao estimador. Ambas podem melhorar generalização — ou fabricar um resultado excelente e inválido se usarem o alvo, o futuro ou o conjunto de teste.
 
-- Distinguir transformação e seleção de features.
-- Criar interações e features temporais.
-- Conhecer filtros, wrappers e métodos embedded.
-- Aplicar seleção dentro do pipeline.
-- Entender regularização como seleção/controle.
+## Problema motivador
 
-## 1. Por que este tema importa para IA?
+Uma equipe prevê fraude no instante em que uma transação é autorizada. A tabela contém horário, valor, identificador do cartão, histórico de compras e o campo `contestada_em_ate_30_dias`. O último campo é o melhor preditor, mas só existe depois da decisão. Em outro extremo, passar a hora como um número de 0 a 23 faz 23h parecer distante de 0h, embora sejam vizinhas no relógio.
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+O modelo não conhece relógios, causalidade nem disponibilidade operacional. Ele recebe números. O trabalho desta aula é construir números que expressem a estrutura correta e existam no instante da previsão, sem deixar que a avaliação contamine essa construção.
 
-O foco desta aula é **criar representações úteis sem vazar target e selecionar features de forma compatível com validação.**
+## Objetivos
 
-## 2. Ideias fundamentais
+Ao final, você será capaz de:
 
-### 1. Representação
+- distinguir dado bruto, transformação, extração, engenharia e seleção de features;
+- representar ciclos, interações, razões e históricos sem violar disponibilidade temporal;
+- comparar filtros, wrappers e métodos *embedded*;
+- explicar por que um filtro univariado pode perder uma interação útil;
+- colocar toda transformação aprendida e toda seleção supervisionada dentro de `Pipeline` e da validação;
+- medir desempenho, custo dimensional e estabilidade da seleção;
+- auditar uma feature desde a origem até o instante de predição.
 
-Modelos aprendem sobre as features fornecidas. Uma boa representação pode tornar um problema difícil quase linear.
+## Pré-requisitos e vocabulário
 
-### 2. Filtros
+Use os conceitos de split, leakage e `Pipeline` da [Aula 03](./03-preprocessamento-pipelines-leakage.md), regularização da [Aula 05](./05-regularizacao-ridge-lasso-elastic-net.md), cross-validation da [Aula 17](./17-cross-validation.md) e tuning da [Aula 18](./18-hyperparameter-tuning.md).
 
-Métodos univariados avaliam cada feature individualmente e são rápidos, mas ignoram interações.
+| Termo | Significado operacional |
+|---|---|
+| **feature** | variável oferecida ao estimador para produzir uma previsão |
+| **transformação** | função que muda a representação, como log, escala ou seno/cosseno |
+| **feature engineering** | criação de variáveis a partir de dados e conhecimento do domínio |
+| **extração** | conversão de objeto bruto em vetor, como texto em contagens |
+| **seleção** | escolha de um subconjunto das features disponíveis |
+| ***stateless*** | transformação sem parâmetros aprendidos, se sua definição já está fixada |
+| **estado aprendido** | parâmetros estimados no `fit`, como média, vocabulário ou ranking feature–alvo |
+| **point-in-time correct** | valor que poderia ser reconstruído usando apenas informação disponível em \(t_0\) |
 
-### 3. Embedded
+## 1. Intuição: o modelo só enxerga a geometria entregue
 
-Lasso e árvores fazem seleção/ponderação durante o próprio treinamento.
+Considere um modelo \(f\) que opera sobre
 
-### 4. Leakage
+\[
+\mathbf{z}=\phi(\mathbf{x};\boldsymbol{\eta}),
+\qquad
+\widehat{y}=f(\mathbf{z};\boldsymbol{\theta}).
+\]
 
-Qualquer seleção orientada por y precisa ser ajustada apenas no treino/fold.
+Aqui:
 
-## Aprofundamento — representação incorpora hipóteses
+- \(\mathbf{x}\in\mathbb{R}^{p}\) é o registro bruto com \(p\) campos;
+- \(\phi\) é o mapa de representação;
+- \(\boldsymbol{\eta}\) reúne parâmetros aprendidos pela transformação;
+- \(\mathbf{z}\in\mathbb{R}^{q}\) é a representação com \(q\) features;
+- \(\boldsymbol{\theta}\) são os parâmetros do modelo;
+- \(\widehat{y}\) é a previsão.
 
-$\phi(x)$ não é neutra. Log-transform pressupõe que razões são mais relevantes que diferenças; interações permitem que efeito de uma feature dependa de outra; janelas temporais definem memória; embeddings definem uma geometria.
+Uma transformação logarítmica afirma que razões importam; uma interação afirma que o efeito de uma variável depende de outra; uma janela de sete dias afirma quanto passado é relevante. Portanto, \(\phi\) incorpora hipóteses. Se \(\boldsymbol{\eta}\) depende dos dados — categorias observadas, imputação, médias por grupo ou associação com \(y\) — ele deve ser estimado apenas no treino de cada fold.
 
-Separe três famílias de seleção:
+Seleção acrescenta um subconjunto \(S\subseteq\{1,\ldots,q\}\):
 
-- **filter**: score feature-target independente do estimador;
-- **wrapper**: avalia subconjuntos treinando modelos, com custo alto;
-- **embedded**: seleção durante o fit, como L1 ou árvores.
+\[
+\widehat{y}=f(\mathbf{z}_S;\boldsymbol{\theta}).
+\]
 
-Toda decisão supervisionada de seleção pertence ao pipeline e ao loop interno de validação. Usar todos os dados para escolher $k$ features e depois fazer CV mede um pipeline que já viu os folds. Features temporais precisam de “as-of join”: cada valor deve existir no instante de predição.
+O objetivo preditivo não é recuperar uma suposta lista universal de “variáveis verdadeiras”, mas escolher um pipeline que generalize sob restrições de latência, custo, manutenção e disponibilidade.
 
-Representações cíclicas evitam que 23h e 0h pareçam distantes: $\sin(2\pi h/24)$ e $\cos(2\pi h/24)$.
+## 2. Criar features úteis
 
-## 3. Equação para guardar
+### 2.1 Transformações monotônicas e de escala
 
-$$
-x_{\text{novo}}=\phi(x)
-$$
+Valores positivos com cauda longa — preço, contagem, intervalo — podem ser transformados por
 
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
+\[
+z=\log(1+x).
+\]
 
-## 4. Exemplo mental
+Isso comprime extremos e permite que um modelo linear represente efeitos multiplicativos. A transformação não conserta outliers nem autoriza valores negativos: é preciso justificar domínio e tratamento. Razões, como `valor / limite_disponivel`, podem expressar mecanismo melhor que os campos isolados, mas o denominador próximo de zero exige regra explícita.
 
-Uma timestamp pode gerar hora, dia da semana, feriado e tempo desde último evento; mas nenhuma feature pode usar informações posteriores ao instante de predição.
+### 2.2 Ciclos
 
-## Exemplo numérico resolvido
+Codificar hora \(h\in\{0,\ldots,23\}\) como inteiro cria uma fronteira artificial. Para um período \(P=24\):
 
-Na codificação bruta, distância entre 23h e 0h é 23. Na codificação cíclica:
+\[
+z_{\sin}=\sin\left(\frac{2\pi h}{P}\right),
+\qquad
+z_{\cos}=\cos\left(\frac{2\pi h}{P}\right).
+\]
 
-$$
-\phi(23)=(-0{,}259,0{,}966),\qquad \phi(0)=(0,1).
-$$
+A dupla é necessária: apenas seno confunde pontos simétricos. Para 23h,
+\(\phi(23)\approx(-0{,}259,\ 0{,}966)\); para 0h, \(\phi(0)=(0,\ 1)\). A distância é
 
-A distância Euclidiana é aproximadamente $0{,}261$, coerente com horários vizinhos. A transformação muda o que o modelo consegue aprender com uma fronteira simples.
+\[
+\sqrt{(-0{,}259)^2+(0{,}966-1)^2}\approx0{,}261,
+\]
 
-## 5. Laboratório em Python / scikit-learn
+coerente com uma hora de separação. O mesmo padrão serve para dia da semana, direção e sazonalidade anual, desde que o ciclo faça sentido no domínio.
 
-```python
-from sklearn.feature_selection import SelectKBest, mutual_info_classif
-from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import LogisticRegression
+### 2.3 Interações e não linearidade
 
-pipe = make_pipeline(
-    SelectKBest(mutual_info_classif, k=20),
-    LogisticRegression(max_iter=1000)
-)
+Uma interação \(x_1x_2\) permite que a inclinação associada a \(x_1\) dependa de \(x_2\):
+
+\[
+\widehat{y}=\beta_0+\beta_1x_1+\beta_2x_2+\beta_3x_1x_2.
+\]
+
+Se \(x_2=0\), o efeito de \(x_1\) é \(\beta_1\); se \(x_2=1\), é \(\beta_1+\beta_3\). Isso é útil quando risco depende da combinação “valor alto **e** dispositivo novo”. Não crie todas as interações cegamente. Para \(p\) variáveis, um polinômio de grau até \(d\), incluindo o viés, produz
+
+\[
+\binom{p+d}{d}
+\]
+
+termos. Com \(p=20\) e \(d=2\), são \(\binom{22}{2}=231\): crescimento suficiente para aumentar memória, variância e custo.
+
+### 2.4 Ausência, agregação e contexto
+
+Um indicador `valor_ausente` pode capturar o processo de coleta, mas também pode codificar um fluxo operacional que muda. Contagens históricas, recência e médias móveis costumam ser poderosas:
+
+\[
+\operatorname{contagem}_{i,t}^{(7d)}
+=\sum_s \mathbb{1}\{i_s=i,\ t-7d\le t_s<t\}.
+\]
+
+Observe o intervalo aberto em \(t\): o evento atual e eventos futuros não entram. A unidade \(i\), a janela e a política para empates de timestamp devem ser declaradas.
+
+## 3. Disponibilidade temporal é parte da definição
+
+Para cada predição, registre:
+
+- **tempo do evento:** quando o fato ocorreu;
+- **tempo de processamento:** quando ficou disponível ao sistema;
+- **tempo de predição \(t_0\):** quando a decisão precisa ser tomada;
+- **tempo do rótulo:** quando o desfecho amadurece.
+
+Uma feature é válida somente se seu valor puder ser reproduzido com dados cujo tempo de processamento é menor ou igual a \(t_0\). Um *as-of join* busca a versão mais recente disponível até esse instante. “A coluna existe hoje no data lake” não prova que existia durante a decisão histórica.
+
+```mermaid
+flowchart LR
+    A[Evento bruto] --> B{Disponível até t0?}
+    B -- não --> X[Excluir: leakage temporal]
+    B -- sim --> C[Transformação point-in-time]
+    C --> D[Fit apenas no treino do fold]
+    D --> E[Transformar validação]
+    E --> F[Medir pipeline completo]
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+Exemplos inválidos incluem status final da contestação, média calculada com o mês inteiro, quantidade de chamadas resolvidas e categoria corrigida após auditoria. Mesmo uma feature sem \(y\) explícito pode ser um proxy pós-desfecho.
 
-### Investigação adicional
+## 4. Seleção de variáveis
 
-Crie features temporais cíclicas, razão e interação usando `FunctionTransformer`/`ColumnTransformer`. Compare baseline, engenharia e seleção dentro da mesma CV. Faça um teste negativo incluindo deliberadamente uma feature posterior a $t_0$ e documente o salto enganoso.
+Seleção pode reduzir latência, custo de aquisição, ruído e complexidade operacional. Ela não é obrigatória: regularização e modelos de árvore frequentemente lidam bem com muitas variáveis. Remover informação cedo demais também prejudica.
 
-## Laboratório guiado completo
+| Família | Como decide | Vantagem | Limite principal |
+|---|---|---|---|
+| não supervisionada | variância, duplicidade, regra de domínio | barata; não consulta \(y\) | baixa variância não significa irrelevância |
+| filtro | score de cada feature com \(y\) | rápido e agnóstico ao modelo | ignora interações e redundância |
+| wrapper | treina modelos para comparar subconjuntos | otimiza em torno do estimador | muitos fits; viés se o loop não for aninhado |
+| *embedded* | seleção ocorre durante o ajuste | integra objetivo e estimador | depende de hipóteses e hiperparâmetros do modelo |
 
-Teste se codificação cíclica melhora uma relação periódica sob validação.
+### 4.1 Filtros
 
-```python
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+`VarianceThreshold` remove constantes ou baixa variância sem usar \(y\). Entre filtros supervisionados, o teste F procura dependência linear; \(\chi^2\) requer features não negativas; informação mútua capta dependência mais geral, mas sua estimativa não paramétrica demanda mais amostras.
 
-rng = np.random.default_rng(42)
-hour = rng.integers(0, 24, 1200)
-y = ((hour >= 22) | (hour <= 2)).astype(int)
-y = np.where(rng.random(len(y)) < 0.08, 1-y, y)
-raw = hour[:,None]
-cyclic = np.c_[np.sin(2*np.pi*hour/24), np.cos(2*np.pi*hour/24)]
-cv = StratifiedKFold(5, shuffle=True, random_state=42)
-for name, X in {"raw": raw, "cyclic": cyclic}.items():
-    model = make_pipeline(StandardScaler(), PolynomialFeatures(2),
-                          LogisticRegression(max_iter=2000))
-    s = cross_val_score(model, X, y, cv=cv, scoring="roc_auc")
-    print(name, s.mean(), s.std())
+`SelectKBest` cria um ranking e mantém \(k\) features. Tanto o score quanto \(k\) pertencem ao pipeline e, se \(k\) for escolhido, ao loop de tuning. Ajustar o seletor uma vez no dataset completo antes de cross-validation revela ao processo quais correlações aleatórias ocorreram nos folds de validação.
+
+### 4.2 Wrappers
+
+RFE elimina iterativamente as features menos valorizadas por um estimador. Seleção sequencial adiciona ou remove features conforme um score de validação. São procedimentos gulosos: não garantem o melhor subconjunto global. Seu custo pode ser alto; uma etapa backward de \(m\) para \(m-1\) features com \(K\) folds exige \(mK\) ajustes. Se o wrapper escolhe features por CV, a estimativa final requer um loop externo ou teste reservado.
+
+### 4.3 Métodos *embedded*
+
+Lasso e regressão logística com penalidade L1 produzem coeficientes esparsos; árvores podem alimentar `SelectFromModel`. O conjunto selecionado depende da escala, regularização, correlações, seed e amostra. Importância por impureza também pode favorecer variáveis contínuas ou de alta cardinalidade. A próxima aula tratará interpretação; aqui, importância é apenas uma regra de seleção que deve ser validada fora da amostra.
+
+## 5. O ponto cego univariado: XOR
+
+Suponha \(x_1,x_2\in\{-1,+1\}\) igualmente prováveis e
+
+\[
+y=\mathbb{1}\{x_1x_2>0\}.
+\]
+
+Separadamente, \(x_1\) e \(x_2\) não informam \(y\): para qualquer valor de \(x_1\), metade dos exemplos é positiva. Um filtro univariado pode descartar ambos. A interação \(x_1x_2\), porém, determina a classe perfeitamente.
+
+Esse exemplo não condena filtros; mostra que o mecanismo gerador e o estimador importam. Antes de selecionar, pergunte quais relações podem existir e se a etapa anterior de engenharia as torna visíveis.
+
+## 6. Redundância e estabilidade
+
+Duas cópias correlacionadas carregam quase a mesma informação. Pequenas mudanças de amostra podem fazer um seletor escolher uma ou outra, preservando a previsão mas alterando a lista. Para subconjuntos \(S_a\) e \(S_b\), uma medida simples é Jaccard:
+
+\[
+J(S_a,S_b)=\frac{|S_a\cap S_b|}{|S_a\cup S_b|}.
+\]
+
+Valores próximos de 1 indicam listas semelhantes; valores baixos pedem investigação. Estabilidade não prova validade, e exigir estabilidade perfeita pode punir grupos redundantes legítimos. Reporte desempenho e estabilidade, além do custo de obter cada feature.
+
+## 7. Pipeline experimental correto
+
+```mermaid
+flowchart TB
+    R[Dados brutos] --> T[Teste reservado: lacrado]
+    R --> C[Desenvolvimento]
+    C --> F1[Fold de treino]
+    C --> F2[Fold de validação]
+    F1 --> P[Fit: imputação, encoding, engenharia aprendida]
+    P --> S[Fit: seleção supervisionada]
+    S --> M[Fit: modelo]
+    F2 --> Q[Transform com estados do treino]
+    Q --> V[Score do pipeline]
+    V --> H[Escolha de representação e k]
+    H --> O[Avaliação externa ou teste único]
 ```
 
-**Entregue:** desenho de $\phi(x)$; comparação raw/cíclica; seleção dentro do pipeline; auditoria temporal de disponibilidade das features.
+Um esqueleto para dados heterogêneos:
 
-### Protocolo investigativo obrigatório
+```python
+from sklearn.compose import ColumnTransformer
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+pre = ColumnTransformer([
+    ("num", Pipeline([
+        ("impute", SimpleImputer(strategy="median")),
+        ("scale", StandardScaler()),
+    ]), numeric_columns),
+    ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_columns),
+])
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+model = Pipeline([
+    ("pre", pre),
+    ("select", SelectKBest(f_classif, k=20)),
+    ("clf", LogisticRegression(max_iter=2_000)),
+])
+```
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+`Pipeline` garante ordem e isolamento estatístico, mas não corrige uma coluna futura, um split incompatível com grupos ou uma transformação customizada que consulta dados globais. O protocolo ainda é responsabilidade de quem modela.
 
-## 6. Conexão com o AI Systems Laboratory
+### Checklist de comparação
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+1. Fixe pergunta, unidade de análise, \(t_0\), split e métrica.
+2. Compare com um baseline de representação bruta.
+3. Altere uma família de features por vez nos mesmos folds.
+4. Coloque transformações aprendidas e seletores dentro do pipeline.
+5. Ajuste \(k\), regularização e demais escolhas somente no treino interno.
+6. Reporte média, dispersão, número de features e tempo/custo.
+7. Faça ablação por famílias, não apenas feature por feature.
+8. Inspecione estabilidade entre folds ou reamostragens.
+9. Refaça a auditoria point-in-time antes do teste reservado.
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+## 8. Laboratório reproduzível
 
-## 7. Armadilhas comuns
+O [notebook da Aula 19](../notebooks/19-feature-engineering-selection-laboratorio.ipynb) usa dados sintéticos e seed fixa. Ele:
 
-- Selecionar features antes do CV.
-- Criar agregações futuras.
-- Confiar em importância univariada para relações complexas.
-- Adicionar centenas de features sem avaliar estabilidade.
+- compara hora bruta com seno/cosseno em uma relação periódica;
+- mostra uma interação que um modelo linear bruto não aprende;
+- contrasta seleção contaminada com `SelectKBest` dentro do pipeline;
+- demonstra o salto enganoso de uma feature disponível apenas depois de \(t_0\);
+- executa asserts e registra versões.
 
-## 8. Exercícios
+Dependências mínimas: Python 3.10, NumPy 1.26, Matplotlib 3.8 e scikit-learn 1.4. Não há download, credencial ou dado pessoal. O teste fica lacrado durante decisões de representação.
 
-1. Dê três features derivadas de timestamp.
-2. Por que seleção deve estar dentro do pipeline?
-3. Diferencie filtro, wrapper e embedded.
-4. Explique uma feature que causaria leakage.
+## 9. Armadilhas e limites
 
-## Exercícios de aprofundamento e rubrica
+- **Gerar antes do split não é sempre seguro.** Seno/cosseno com período fixado pelo domínio é *stateless*; média, frequência, vocabulário e target encoding aprendem estado.
+- **Target encoding ingênuo vaza.** Cada linha não deve enxergar o próprio rótulo; use cross-fitting no treino e política para categorias novas.
+- **Correlação não mede disponibilidade.** Uma feature perfeita pode ser impossível em produção.
+- **Alta cardinalidade explode dimensão.** Hashing, agrupamento ou regularização podem ser necessários, sempre medidos no pipeline.
+- **Mais features não significam mais sinal.** A busca encontra correlações espúrias quando \(p\) é grande e \(n\) pequeno.
+- **Seleção não estabelece causalidade.** O algoritmo otimiza associação preditiva sob o dataset e o protocolo.
+- **Lista selecionada não é eterna.** Mudanças de coleta, população e custo exigem monitoramento e nova validação.
 
-### Nível A — reconstrução conceitual
+## 10. Exercícios com respostas comentadas
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+### 1. Ciclo
 
-### Nível B — cálculo e implementação
+Codifique terça-feira em um ciclo semanal com segunda \(=0\).
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+**Resposta:** terça tem \(h=1\) e \(P=7\):
+\[
+(\sin(2\pi/7),\cos(2\pi/7))\approx(0{,}782,\ 0{,}623).
+\]
+O par preserva proximidade circular entre domingo e segunda.
 
-### Nível C — contraprova experimental
+### 2. Contagem dimensional
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+Quantas colunas `PolynomialFeatures(degree=2, include_bias=False)` cria para \(p=8\)?
 
-### Nível D — transferência para sistema real
+**Resposta:** \(\binom{8+2}{2}-1=45-1=44\). Isso inclui termos lineares, quadrados e interações; o “\(-1\)” remove o viés.
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+### 3. Leakage de seleção
 
-### Rubrica de 0 a 4
+Por que selecionar 30 entre 10.000 features usando todo o dataset e depois executar CV é inválido?
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+**Resposta:** os rótulos de cada fold de validação já influenciaram o ranking das 30 features. A CV mede um pipeline com acesso indireto à validação. O seletor deve ser reajustado dentro de cada fold.
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+### 4. Timestamp
 
-## 9. Critério de domínio
+“Número de tickets encerrados pelo cliente nos sete dias seguintes” é uma feature histórica?
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+**Resposta:** não para uma decisão em \(t_0\). O intervalo está no futuro. Uma alternativa válida seria a contagem encerrada nos sete dias anteriores, usando tempo de processamento e intervalo estritamente anterior a \(t_0\).
 
-## 10. Referências principais
+### 5. XOR
 
-- Guyon & Elisseeff (2003) — An Introduction to Variable and Feature Selection.
-- ISLP — model selection and feature engineering.
-- scikit-learn — Feature selection.
-- Murphy — feature selection.
+Por que manter apenas variáveis com alto score F univariado pode falhar no XOR?
 
-## Leitura orientada e fontes verificadas
+**Resposta:** cada variável isolada é independente do rótulo, embora o produto das duas determine a classe. Engenharia de interação ou um estimador capaz de aprender a interação precisa ocorrer antes da decisão de descarte.
 
-- scikit-learn — [Feature extraction](https://scikit-learn.org/stable/modules/feature_extraction.html) e [feature selection](https://scikit-learn.org/stable/modules/feature_selection.html).
-- scikit-learn — [Pipelines](https://scikit-learn.org/stable/modules/compose.html).
-- James et al. — [ISLP](https://www.statlearning.com/), seleção de modelos e bases não lineares.
-- Hastie, Tibshirani e Friedman — [ESL](https://hastie.su.domains/ElemStatLearn/), representação e seleção.
+### 6. Filtro, wrapper ou *embedded*
+
+Classifique `VarianceThreshold`, seleção sequencial e Lasso.
+
+**Resposta:** respectivamente: filtro não supervisionado, wrapper e método *embedded*. O primeiro olha apenas \(X\); o segundo compara subconjuntos treinando modelos; o terceiro induz esparsidade durante o ajuste.
+
+### 7. Estabilidade
+
+Dois folds selecionaram \(S_1=\{a,b,c,d\}\) e \(S_2=\{a,b,d,e\}\). Calcule Jaccard.
+
+**Resposta:** a interseção tem 3 elementos e a união 5, então \(J=3/5=0{,}6\). O valor sugere investigar redundância e tamanho da amostra; não permite concluir sozinho que o pipeline é ruim.
+
+### 8. Desenho real
+
+Para um sistema de triagem, documente uma feature temporal.
+
+**Resposta-modelo:** “`chamados_30d` é a contagem de chamados da mesma conta com `processado_em < t0` e `evento_em >= t0-30d`; eventos com processamento atrasado não entram; a implementação é validada por snapshots históricos”. A definição informa entidade, janela, relógios e política de corte.
+
+## Resumo
+
+- Representação é uma hipótese operacional expressa por \(\phi\).
+- Ciclos precisam de duas coordenadas; interações permitem efeitos condicionais.
+- Features históricas exigem correção point-in-time e distinção entre tempo do evento e de processamento.
+- Filtros são baratos, wrappers são caros e métodos *embedded* dependem do estimador.
+- Seleção supervisionada e seus hiperparâmetros pertencem ao pipeline e ao loop interno.
+- Filtros univariados podem perder interações; features correlacionadas podem tornar a lista instável.
+- Desempenho, estabilidade, custo e disponibilidade devem ser avaliados juntos.
+
+## Referências técnicas
+
+Fontes verificadas em **8 de setembro de 2026**:
+
+1. Guyon, I.; Elisseeff, A. (2003). [An Introduction to Variable and Feature Selection](https://jmlr.org/papers/v3/guyon03a.html). JMLR 3 — artigo primário sobre objetivos, métodos e riscos de seleção.
+2. scikit-learn 1.9. [Feature selection](https://scikit-learn.org/stable/modules/feature_selection.html) — filtros, RFE, `SelectFromModel`, seleção sequencial e uso em pipeline.
+3. scikit-learn 1.9. [Pipelines and composite estimators](https://scikit-learn.org/stable/modules/compose.html#pipeline) — composição, tuning conjunto e isolamento entre treino e validação.
+4. scikit-learn 1.9. [PolynomialFeatures](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PolynomialFeatures.html) — definição e crescimento dimensional.
+5. scikit-learn 1.9. [Common pitfalls and recommended practices](https://scikit-learn.org/stable/common_pitfalls.html) — preprocessing, leakage e escolhas aleatórias.
+6. James et al. (2023). [An Introduction to Statistical Learning with Applications in Python](https://www.statlearning.com/) — bases não lineares, regularização e seleção.
 
 ## Próxima aula
 
-**Interpretabilidade: coeficientes, permutation importance e SHAP**
+Na [Aula 20](./20-interpretabilidade-modelos.md), usaremos coeficientes, permutation importance e SHAP para investigar como um modelo treinado usa suas features — sem confundir explicação preditiva com causalidade.
