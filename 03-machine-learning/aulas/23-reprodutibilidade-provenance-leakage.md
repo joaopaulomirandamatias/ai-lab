@@ -1,222 +1,361 @@
 # Aula 23 — Reprodutibilidade, provenance, pipelines e zero data leakage
 
+<!-- mirandastech-aula-v2 -->
+
 **Trilha:** Especialista em IA  
 **Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 22 deste módulo  
-**Objetivo central:** Construir experimentos de ML que possam ser auditados e repetidos.
+**Pré-requisito:** [Aula 22 — Redução de dimensionalidade](./22-reducao-dimensionalidade-ml.md)  
+**Próxima aula:** [Aula 24 — Gate II](./24-gate-ii-experimento-ml-classico.md)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/23-reprodutibilidade-provenance-leakage-laboratorio.ipynb)
 
-## Objetivos de aprendizagem
+> Reexecutar um erro produz o mesmo erro. Reprodutibilidade fortalece a evidência apenas quando acompanha um protocolo válido, artefatos identificáveis e uma trilha que explica de onde cada resultado veio.
 
-- Controlar seeds e versões.
-- Registrar dataset, código e parâmetros.
-- Distinguir provenance e lineage.
-- Criar pipeline end-to-end.
-- Aplicar checklist de leakage.
+## Problema motivador
 
-## 1. Por que este tema importa para IA?
+Uma equipe apresenta ROC-AUC 0,94 para prever quais equipamentos falharão nas próximas 24 horas. O notebook está salvo, a seed é 42 e o modelo pode ser carregado. Ainda assim, ninguém consegue responder com segurança:
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+- qual snapshot de dados gerou o resultado;
+- se registros do mesmo equipamento atravessaram treino e validação;
+- quais colunas existiam no instante da previsão;
+- se o scaler foi ajustado dentro de cada fold;
+- quantas decisões foram tomadas depois de olhar o teste;
+- qual commit, configuração e ambiente produziram o modelo.
 
-O foco desta aula é **construir experimentos de ml que possam ser auditados e repetidos.**
+O número é repetível no computador original, mas não é auditável. Pior: uma coluna chamada `tempo_ate_reparo` foi calculada depois da falha. O experimento reproduz perfeitamente um vazamento.
 
-## 2. Ideias fundamentais
+Nesta aula, vamos transformar “rodei o notebook” em uma cadeia de evidência: pergunta congelada, dados identificados por conteúdo, configuração canônica, splits rastreáveis, pipeline, resultados ligados ao código e testes negativos contra leakage.
 
-### 1. Reprodutibilidade
+## Objetivos
 
-Uma métrica sem código, dados, split e configuração identificáveis é uma evidência fraca.
+Ao concluir, você será capaz de:
 
-### 2. Provenance
+- distinguir repetibilidade, reprodutibilidade e replicação sob uma taxonomia declarada;
+- modelar provenance com `Entity`, `Activity` e `Agent`;
+- diferenciar provenance, lineage, versionamento e rastreamento de experimentos;
+- construir um manifesto canônico com hashes de dados, configuração, splits e previsões;
+- explicar o que uma seed controla e o que ela não controla;
+- reconhecer vazamento por alvo, tempo, entidade, preprocessing, seleção e uso reiterado do teste;
+- mostrar por que `Pipeline` é necessário, mas insuficiente para “zero leakage”;
+- criar testes automáticos que falham quando o protocolo é violado;
+- entregar evidência reconstruível para pesquisa e sistemas reais.
 
-Registra de onde o dado veio, quando foi obtido, sob quais regras e transformações.
+## Pré-requisitos e vocabulário
 
-### 3. Lineage
+Retome o instante de previsão e o split na [Aula 02](./02-framing-dataset-split-baseline.md), pipelines na [Aula 03](./03-preprocessamento-pipelines-leakage.md), cross-validation na [Aula 17](./17-cross-validation.md) e tuning sem consultar o teste na [Aula 18](./18-hyperparameter-tuning.md).
 
-Rastreia o caminho de transformação do dado até features, modelos e artefatos finais.
+| Termo | Definição operacional nesta aula |
+|---|---|
+| **run** | uma execução identificada de um protocolo |
+| **artefato** | dado, configuração, modelo, métrica ou relatório persistido |
+| **snapshot** | estado imutável ou identificável de um conjunto de dados |
+| **provenance** | informação sobre entidades, atividades e agentes envolvidos na produção de algo |
+| **lineage** | caminho de derivações e transformações entre artefatos |
+| **manifesto** | registro estruturado que liga entradas, código, configuração, ambiente e saídas |
+| **hash** | resumo determinístico de bytes usado para detectar mudanças |
+| **leakage** | informação indisponível no uso real ou pertencente à avaliação influencia aprendizagem/seleção |
+| **threat to validity** | condição que limita a interpretação ou generalização do resultado |
 
-### 4. Zero leakage
+Os termos *reproducibility* e *replicability* variam entre comunidades. Aqui adotamos e declaramos: **repetibilidade** para mesma equipe/artefatos/ambiente; **reprodutibilidade** para outra equipe reconstruir o resultado com os artefatos e método fornecidos; **replicação** para testar a conclusão com nova implementação, amostra ou coleta. O rótulo importa menos que explicitar o teste realizado.
 
-Qualquer informação da validação/teste ou do futuro que influencie treinamento, seleção ou preprocessing invalida a estimativa.
+## 1. Três níveis de reconstrução
 
-## Aprofundamento — do experimento repetível à evidência auditável
+| Nível | O que muda | Pergunta respondida | Não garante |
+|---|---|---|---|
+| repetibilidade | quase nada | a mesma execução retorna resultado compatível? | protocolo correto |
+| reprodutibilidade | pessoa/ambiente | os artefatos permitem reconstruir a evidência? | validade externa |
+| replicação | implementação ou dados | a conclusão resiste a uma prova independente? | causalidade automática |
 
-Distinga:
+Resultados estocásticos raramente precisam coincidir bit a bit em todo hardware. Defina uma tolerância ou distribuição esperada. Um teste pode exigir o mesmo hash de split e previsões idênticas no ambiente travado; outro pode exigir ROC-AUC dentro de uma faixa em várias seeds.
 
-- **repeatability**: mesma equipe, ambiente e artefatos repete o resultado;
-- **reproducibility**: outra equipe reconstrói com artefatos/metodologia fornecidos;
-- **replication**: nova implementação ou novos dados testam a mesma conclusão.
-
-Seed não basta. Paralelismo, bibliotecas numéricas, hardware, ordem dos dados e algoritmos não determinísticos podem alterar resultados. Registre versões, dispositivo, número de threads e distribuição entre seeds quando relevante.
-
-Provenance responde “de onde veio”; lineage responde “por quais transformações passou”. Use hash de conteúdo para snapshots, commit para código, configuração declarativa para hiperparâmetros e identificador único ligando execução, métricas e modelo. Não versionar dados sensíveis diretamente no Git; versionar metadados, hashes e ponteiros controlados.
-
-Um modelo pode ser reexecutável e ainda metodologicamente inválido. Reprodutibilidade preserva o erro; o protocolo de zero leakage e as threats to validity avaliam sua qualidade.
-
-## 3. Equação para guardar
-
-$$
-\text{evidência}=\text{dados}+\text{código}+\text{config}+\text{métrica}+\text{rastreabilidade}
-$$
-
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
-
-## 4. Exemplo mental
-
-Um experimento deve permitir reconstruir exatamente qual snapshot de dataset e quais hiperparâmetros produziram um modelo e sua métrica.
-
-## Exemplo numérico resolvido
-
-Defina
-
-$$
-experiment\_id=SHA256(data\_hash\;||\;commit\;||\;config\_hash).
-$$
-
-Se dataset `a91...`, commit `ba038...` e config `c72...` geram ID `e4f...`, qualquer mudança cria outro experimento. Uma tabela de resultados deve registrar esse ID, horário, ambiente, seed, folds e métricas. “modelo_final_v7.pkl” não é lineage.
-
-## 5. Laboratório em Python / scikit-learn
-
-```python
-import sklearn, numpy as np
-
-print("sklearn:", sklearn.__version__)
-print("numpy:", np.__version__)
-
-RANDOM_STATE = 42
-# salve também:
-# - hash/version do dataset
-# - commit do código
-# - parâmetros do pipeline
-# - folds/split strategy
-# - métricas e intervalos
+```mermaid
+flowchart LR
+    Q[Pergunta e protocolo] --> D[Snapshot de dados]
+    D --> S[Split identificado]
+    S --> P[Pipeline e configuração]
+    P --> R[Run]
+    R --> M[Métricas e previsões]
+    M --> C[Conclusão limitada]
+    D -. hash .-> X[Manifesto]
+    S -. hash .-> X
+    P -. código e config .-> X
+    M -. artefatos .-> X
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+## 2. Provenance e lineage
 
-### Investigação adicional
+O W3C PROV organiza provenance em três classes iniciais:
 
-Implemente um runner que salve `metadata.json`: hash SHA-256 do dataset, commit, `pip freeze`, seed, splitter, parâmetros via `get_params`, métricas por fold e duração. Reexecute duas vezes e compare hashes/resultados. Faça um terceiro run com seed diferente.
+- `prov:Entity`: algo físico, digital ou conceitual com aspectos fixos, como snapshot, configuração ou modelo;
+- `prov:Activity`: processo que usa ou gera entidades, como preparar dados ou treinar;
+- `prov:Agent`: responsável por uma atividade ou entidade, como pessoa, organização ou software.
 
-## Laboratório guiado completo
+Relações como `prov:used`, `prov:wasGeneratedBy`, `prov:wasDerivedFrom` e `prov:wasAssociatedWith` formam cadeias interoperáveis. Lineage é a visão de percurso: por quais fontes e transformações uma feature, previsão ou figura passou.
 
-Crie um registro de execução que vincule dados, ambiente, código, parâmetros e métricas.
-
-```python
-import hashlib, json, platform, subprocess
-from pathlib import Path
-import numpy as np
-import sklearn
-
-dataset = Path("dataset.csv")
-data_hash = hashlib.sha256(dataset.read_bytes()).hexdigest() if dataset.exists() else "DEMO"
-try:
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-except Exception:
-    commit = "UNKNOWN"
-config = {"seed": 42, "splitter": "StratifiedKFold(5)", "metric": "roc_auc"}
-config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
-metadata = {
-    "experiment_id": hashlib.sha256(f"{data_hash}{commit}{config_hash}".encode()).hexdigest(),
-    "data_hash": data_hash, "commit": commit, "config": config,
-    "python": platform.python_version(), "numpy": np.__version__,
-    "sklearn": sklearn.__version__,
-}
-print(json.dumps(metadata, indent=2))
+```mermaid
+flowchart TD
+    A1[Agente: runner versionado] -->|associado a| T[Atividade: treino]
+    E1[Entidade: snapshot bruto] -->|usado por| F[Atividade: feature engineering]
+    F -->|gera| E2[Entidade: matriz de features]
+    E2 -->|usada por| T
+    E3[Entidade: config e split] -->|usada por| T
+    T -->|gera| E4[Entidade: modelo]
+    T -->|gera| E5[Entidade: previsões OOF]
+    E5 -->|deriva em| E6[Entidade: métricas e relatório]
 ```
 
-**Entregue:** `metadata.json`; hashes estáveis; dois runs iguais e um com seed diferente; lista de fontes de não determinismo; threats to validity.
+Um registry de modelos sem origem dos dados não fecha a cadeia. Um dataset versionado sem código e configuração também não. Provenance precisa responder pelo menos: **o quê, de onde, por qual atividade, sob qual configuração, por quem ou qual software e quando**.
 
-### Protocolo investigativo obrigatório
+## 3. Identidade por conteúdo: hashes e canonicalização
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+Para bytes (b), um hash criptográfico produz um identificador:
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+\[
+h=\operatorname{SHA256}(b).
+\]
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+Uma alteração mínima tende a mudar (h). Isso ajuda a detectar que dois snapshots não são idênticos. Entretanto:
 
-## 6. Conexão com o AI Systems Laboratory
+- hash não prova que o dado é verdadeiro;
+- hash sem armazenamento imutável não recupera o conteúdo;
+- serializações equivalentes podem produzir bytes diferentes;
+- hash não substitui assinatura, autorização ou controle de acesso;
+- dados pessoais não devem ser publicados só porque receberam hash.
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+Para configuração, use serialização canônica: chaves ordenadas, encoding explícito, valores normalizados e ausência de campos voláteis. Um identificador didático de experimento pode ser:
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+\[
+e=\operatorname{SHA256}(h_D\Vert h_S\Vert h_C\Vert v_K),
+\]
 
-## 7. Armadilhas comuns
+em que (h_D) identifica os dados, (h_S) os splits, (h_C) a configuração e (v_K) o código versionado. O símbolo (Vert) representa concatenação com formato não ambíguo.
 
-- Salvar somente o pickle do modelo.
-- Não versionar dataset.
-- Alterar preprocessing manualmente fora do pipeline.
-- Não registrar seed e estratégia de split.
+Não use somente `modelo_final_v7.pkl`. O nome não revela se `v7` mudou porque o dado, código, seed, split ou hiperparâmetro mudou.
 
-## 8. Exercícios
+## 4. Manifesto mínimo de um experimento
 
-1. Crie um checklist mínimo de reprodução.
-2. Diferencie provenance de lineage.
-3. Liste cinco tipos de leakage.
-4. Que artefatos você salvaria após um experimento?
+| Campo | Exemplo | Função |
+|---|---|---|
+| `experiment_id` | SHA-256 composto | liga a execução ao protocolo |
+| `question` e `prediction_time` | falha em 24 h; (t_0) | impede redefinição oportunista |
+| `dataset_sha256` | hash do snapshot canônico | detecta troca de dados |
+| `schema` | nomes, tipos e unidades | torna entrada interpretável |
+| `splitter` e `split_sha256` | `GroupKFold(5)` | reconstrói quem avaliou quem |
+| `features_at_t0` | lista ordenada | audita disponibilidade temporal |
+| `target_definition` | regra e janela | evita alvo móvel |
+| `code_ref` | commit Git | identifica implementação |
+| `config_sha256` | hash de JSON canônico | identifica parâmetros |
+| `environment` | Python, bibliotecas, SO | contextualiza diferenças |
+| `seeds` | geração, split, estimador | localiza aleatoriedade |
+| `metrics_by_fold` | vetor, não só média | expõe variabilidade |
+| `prediction_sha256` | hash de OOF/teste | confere saída |
+| `limitations` | grupos, período, viés | limita a alegação |
 
-## Exercícios de aprofundamento e rubrica
+Datas e duração são importantes para auditoria, mas não devem entrar no ID se impedirem que uma reexecução idêntica produza o mesmo identificador lógico. Separe identidade do protocolo e metadados operacionais do run.
 
-### Nível A — reconstrução conceitual
+## 5. Seed é controle parcial, não selo mágico
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+Uma seed inicializa geradores pseudoaleatórios. Ainda podem variar:
 
-### Nível B — cálculo e implementação
+- ordem dos dados e iteração sobre estruturas;
+- múltiplos geradores não inicializados;
+- paralelismo, redução numérica e número de threads;
+- bibliotecas BLAS, compilador, CPU, GPU e drivers;
+- algoritmos com operações não determinísticas;
+- dados externos mutáveis e dependências sem versão travada.
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+Registre as seeds e passe `random_state` explicitamente. Para evidência científica, execute várias seeds quando a variabilidade faz parte do método. Para reconstrução operacional, registre também versões, imagem/lockfile, hardware relevante e flags de determinismo.
 
-### Nível C — contraprova experimental
+Se a repetição exata não for portável, estabeleça invariantes: mesmos grupos fora do treino, ausência de sobreposição, shapes, limites de métricas e tolerâncias numéricas. **Determinismo é propriedade testada, não presumida.**
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+## 6. Taxonomia prática de leakage
 
-### Nível D — transferência para sistema real
+Leakage ocorre quando treinamento, transformação, seleção ou decisão recebe informação que não estaria legitimamente disponível no instante e contexto de uso.
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+| Tipo | Exemplo | Defesa |
+|---|---|---|
+| target/proxy | `tempo_ate_reparo` para prever falha | contrato de disponibilidade em (t_0) |
+| temporal | média calculada com eventos futuros | corte por tempo e janelas causais |
+| entidade/grupo | visitas do mesmo paciente em treino e validação | split por entidade |
+| duplicata | cópias quase idênticas atravessam conjuntos | deduplicar antes do split e agrupar |
+| preprocessing | imputação/seleção ajustada em todo (X) | `Pipeline` dentro dos folds |
+| tuning | escolher hiperparâmetro pelo teste | validação/nested CV; teste uma vez |
+| test feedback | reescrever features após olhar erros do teste | novo teste ou avaliação externa |
+| upstream | rótulos ou embeddings treinados com período futuro | provenance das fontes e artefatos |
 
-### Rubrica de 0 a 4
+### Pipeline é necessário, mas não suficiente
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+`Pipeline` garante a ordem `fit`/`transform` entre folds para etapas compatíveis com sua API. Ele não sabe:
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+- que uma coluna só nasce depois do desfecho;
+- que duas linhas pertencem à mesma pessoa;
+- que o timestamp exige embargo;
+- que o teste foi consultado em uma reunião anterior;
+- que um artefato externo foi treinado em dados proibidos.
 
-## 9. Critério de domínio
+Logo, “zero leakage” não é uma função booleana de biblioteca. É uma alegação sustentada por contrato de dados, split coerente, pipeline, provenance e testes.
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+## 7. Exemplo resolvido: o identificador que vaza
 
-## 10. Referências principais
+Suponha 100 clientes, cada um com quatro atendimentos, e um desfecho quase constante por cliente. Um modelo recebe `cliente_id` codificado.
 
-- scikit-learn — Common pitfalls and recommended practices.
-- Sculley et al. (2015) — Hidden Technical Debt in Machine Learning Systems.
-- W3C PROV — provenance data model.
-- MLflow documentation — experiment tracking concepts.
+1. Um split aleatório por linha coloca aproximadamente três atendimentos no treino e um na validação.
+2. O modelo aprende a associação entre ID e desfecho.
+3. A validação parece excelente porque reconhece clientes, não porque generaliza.
+4. Em produção chegam clientes novos; os IDs são desconhecidos.
 
-## Leitura orientada e fontes verificadas
+O protocolo correto depende da pergunta. Se o objetivo é prever **novos clientes**, todos os registros de cada cliente devem ficar no mesmo lado usando `GroupKFold`, `GroupShuffleSplit` ou equivalente. Se o objetivo legítimo é prever novos eventos de clientes conhecidos, é necessário um corte temporal por cliente que respeite (t_0). “Embaralhar mais” não resolve dependência.
 
-- Pineau et al. — [Improving Reproducibility in Machine Learning Research](https://arxiv.org/abs/2003.12206).
-- NeurIPS — [Paper Checklist Guidelines](https://neurips.cc/public/guides/PaperChecklist).
-- scikit-learn — [Controlling randomness](https://scikit-learn.org/stable/common_pitfalls.html#controlling-randomness).
-- NeurIPS — [programa de reprodutibilidade e checklist](https://blog.neurips.cc/2021/03/26/introducing-the-neurips-2021-paper-checklist/).
+## 8. Testes automáticos do método
 
-## Próxima aula
+Além de testar código, teste o desenho experimental:
 
-**Gate II — Experimento completo de Machine Learning clássico**
+```python
+assert set(groups_train).isdisjoint(groups_test)
+assert (feature_timestamp <= prediction_timestamp).all()
+assert set(features) <= set(available_at_prediction)
+assert dataset_sha256 == expected_dataset_sha256
+assert split_sha256 == expected_split_sha256
+assert test_access_count == 1
+```
+
+Alguns controles precisam existir fora do notebook: permissões que ocultam o teste, armazenamento append-only, revisão do contrato de features e registro de acessos. Um `assert` escrito pela mesma pessoa que escolhe ignorá-lo não é segregação de função.
+
+## 9. Laboratório reproduzível
+
+O [notebook da Aula 23](../notebooks/23-reprodutibilidade-provenance-leakage-laboratorio.ipynb) usa dados sintéticos de atendimentos repetidos. Ele:
+
+1. cria e serializa um snapshot canônico;
+2. calcula hashes de dados, configuração e folds;
+3. gera previsões *out-of-fold* com preprocessing dentro do pipeline;
+4. monta e valida um manifesto JSON;
+5. repete a execução e confere IDs, métricas e previsões;
+6. altera uma única célula e demonstra mudança do dataset e do experimento;
+7. compara split ingênuo por linha com split honesto por entidade;
+8. introduz uma feature pós-desfecho para provar que pipeline não bloqueia leakage semântico;
+9. cria uma trilha PROV simplificada entre entidades e atividades.
+
+Dependências mínimas: Python 3.11, NumPy 1.26, pandas 2.1 e scikit-learn 1.4. O dataset é gerado localmente com seed fixa; não há rede, credenciais nem dados pessoais. O notebook versionado permanece sem outputs após a execução de validação.
+
+## 10. Checklist de entrega
+
+### Antes de treinar
+
+- [ ] Pergunta, população, unidade de análise e (t_0) estão escritos.
+- [ ] Target, horizonte, métricas e baseline foram congelados.
+- [ ] Cada feature tem origem e disponibilidade temporal.
+- [ ] Entidades, duplicatas, tempo e dependências orientaram o splitter.
+- [ ] O teste está reservado e seu acesso é controlado.
+
+### Durante o experimento
+
+- [ ] Transformações aprendidas vivem no pipeline/fold.
+- [ ] Espaço de tuning e regra de seleção foram registrados.
+- [ ] Seeds e fontes de não determinismo estão documentadas.
+- [ ] Dados, config, splits, código e previsões têm identificadores.
+- [ ] Métricas por fold e erros são preservados, não só o melhor score.
+
+### Depois
+
+- [ ] O modelo aponta para o manifesto que o gerou.
+- [ ] A conclusão distingue observação, interpretação e limite.
+- [ ] Testes negativos procuram leakage deliberadamente.
+- [ ] Outra pessoa consegue reconstruir o run com um comando ou roteiro.
+- [ ] Informações sensíveis permanecem em armazenamento autorizado.
+
+## 11. Armadilhas e limites
+
+- Confundir seed fixa com experimento reproduzível.
+- Hash de arquivo comprimido variar por metadados, embora o conteúdo lógico seja igual.
+- Registrar `pip freeze` sem SO, runtime ou fonte dos dados.
+- Versionar dados sensíveis diretamente no Git.
+- Sobrescrever artefatos com nomes como `final` ou `latest`.
+- Guardar somente média do CV e perder os folds.
+- Incluir timestamp no ID lógico e tornar toda repetição “diferente”.
+- Acreditar que container elimina não determinismo de hardware.
+- Usar hash como prova de autenticidade ou qualidade.
+- Reproduzir uma métrica contaminada e chamá-la de evidência.
+- Declarar “zero leakage” sem delimitar as ameaças avaliadas.
+
+## 12. Exercícios com respostas comentadas
+
+### 1. Seed
+
+Duas execuções usam seed 42, mas GPUs e versões de biblioteca diferentes. Elas precisam ser bit a bit idênticas?
+
+**Resposta:** não necessariamente. Registre o ambiente e defina tolerâncias/invariantes. Se igualdade exata for requisito, use operações determinísticas suportadas e teste no ambiente alvo.
+
+### 2. Hash
+
+O hash do CSV mudou após reordenar linhas, sem alterar os registros. Houve corrupção?
+
+**Resposta:** não se conclui isso. O hash identifica bytes e a ordem faz parte da serialização. Defina se ordem é semântica e canonicalize antes de comparar.
+
+### 3. Provenance
+
+Classifique como `Entity`, `Activity` ou `Agent`: dataset, treinamento e runner.
+
+**Resposta:** dataset é `Entity`; treinamento é `Activity`; runner pode ser `SoftwareAgent`. O modelo gerado volta a ser `Entity`.
+
+### 4. Lineage
+
+Por que saber apenas a URL da fonte não basta?
+
+**Resposta:** faltam versão/snapshot, regras de extração, filtros, joins, transformações e atividades que produziram as features usadas.
+
+### 5. Grupos
+
+Quatro imagens do mesmo paciente aparecem em momentos próximos. Qual cuidado mínimo?
+
+**Resposta:** se o objetivo envolve pacientes novos, agrupe todas as imagens do paciente no mesmo fold. Se envolve futuro do mesmo paciente, use corte temporal coerente e impeça informação posterior a (t_0).
+
+### 6. Pipeline
+
+Uma coluna `alta_hospitalar_em_dias` entra em um pipeline perfeito para prever internação prolongada. O protocolo está protegido?
+
+**Resposta:** não. A coluna é conhecida depois do desfecho. Pipeline não entende disponibilidade temporal; o contrato de features deve excluí-la.
+
+### 7. Teste reutilizado
+
+Após dez rodadas guiadas pelos erros do teste, a equipe mantém o mesmo conjunto e reporta a última métrica. Ele ainda é teste?
+
+**Resposta:** não para uma estimativa imparcial; tornou-se parte do processo de seleção. Reserve um novo teste ou obtenha avaliação externa.
+
+### 8. Manifesto
+
+Quais quatro identificadores mínimos compõem o ID didático desta aula?
+
+**Resposta:** hashes de dados, split e configuração, mais referência versionada do código. Ambiente e resultados também devem constar no manifesto, ainda que não definam o protocolo lógico.
+
+### 9. Contraprova
+
+Um run é perfeitamente repetível e tem ROC-AUC 0,99. O que testar antes de comemorar?
+
+**Resposta:** disponibilidade em (t_0), sobreposição de entidades/duplicatas, ajuste fora dos folds, tuning ou feedback pelo teste e provenance de artefatos upstream. Repetibilidade não detecta invalidade.
+
+## Resumo
+
+- Repetir, reproduzir e replicar são testes diferentes; declare a taxonomia.
+- Provenance conecta entidades, atividades e agentes; lineage segue suas derivações.
+- Hash detecta mudança de bytes, mas não prova verdade, autenticidade ou qualidade.
+- Um manifesto liga dados, split, configuração, código, ambiente, previsões e métricas.
+- Seed controla apenas fontes explícitas de pseudoaleatoriedade.
+- Leakage pode vir do alvo, futuro, grupos, duplicatas, preprocessing, tuning ou feedback do teste.
+- Pipeline impede classes importantes de contaminação, mas não entende semântica ou tempo.
+- “Zero leakage” é uma alegação auditável apoiada por controles e testes negativos.
+- Um experimento reexecutável e inválido continua inválido.
+
+## Referências técnicas
+
+Fontes verificadas em **8 de setembro de 2026**:
+
+1. W3C. [PROV-O: The PROV Ontology](https://www.w3.org/TR/prov-o/) — Recomendação de 30 de abril de 2013; classes e relações interoperáveis de provenance.
+2. W3C. [PROV-DM: The PROV Data Model](https://www.w3.org/TR/prov-dm/) — modelo conceitual normativo da família PROV.
+3. scikit-learn 1.9. [Common pitfalls and recommended practices](https://scikit-learn.org/stable/common_pitfalls.html) — pipelines, leakage e controle de aleatoriedade.
+4. Pineau et al. (2021). [Improving Reproducibility in Machine Learning Research](https://jmlr.org/papers/v22/20-303.html). JMLR — relatório do programa de reprodutibilidade NeurIPS 2019.
+5. Sculley et al. (2015). [Hidden Technical Debt in Machine Learning Systems](https://proceedings.neurips.cc/paper/2015/hash/86df7dcfd896fcaf2674f757a2463eba-Abstract.html) — dependências e dívida sistêmica em ML.
+6. NeurIPS. [Paper Checklist Guidelines](https://neurips.cc/public/guides/PaperChecklist) — transparência de código, dados, experimentos e limitações.
+
+## Transição para o Gate II
+
+Na [Aula 24](./24-gate-ii-experimento-ml-classico.md), o manifesto deixa de ser exercício isolado e passa a acompanhar a entrega completa: baseline, modelos candidatos, cross-validation, critério de seleção congelado, teste reservado, análise de erros e conclusão limitada. O Gate II não premia a maior métrica; premia evidência preditiva que resiste a auditoria.
