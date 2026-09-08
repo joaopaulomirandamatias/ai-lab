@@ -1,222 +1,428 @@
+<!-- mirandastech-aula-v2 -->
+
 # Aula 13 — Métricas de regressão: MAE, MSE, RMSE, R² e erro relativo
+
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/13-metricas-regressao-laboratorio.ipynb)
 
 **Trilha:** Especialista em IA  
 **Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 12 deste módulo  
-**Objetivo central:** Aprender a escolher métricas de regressão de acordo com a pergunta e o custo do erro.
+**Pré-requisito:** [Aula 12 — Support Vector Machines: margens e kernels](12-svm-kernels.md)  
+**Objetivo central:** escolher métricas de regressão que representem a decisão real, calculá-las corretamente e evitar conclusões enganosas.
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+> Um número não diz se um modelo é bom. Ele diz como o modelo se saiu segundo uma definição de erro, em uma população, unidade de análise e horizonte definidos.
+
+## Problema motivador: duas previsões, a mesma MAE
+
+Um sistema prevê demanda diária. Dois modelos produzem erros absolutos:
+
+| Dia | Modelo A | Modelo B |
+|---:|---:|---:|
+| 1 | 2 | 0 |
+| 2 | 2 | 0 |
+| 3 | 2 | 0 |
+| 4 | 2 | 8 |
+
+Ambos têm MAE igual a 2 unidades. Porém, o Modelo B concentra todo o erro em um dia. Se um desvio de 8 causa ruptura de estoque, tratá-los como equivalentes é uma decisão ruim. O RMSE vale 2 para A e 4 para B, pois penaliza mais o erro extremo.
+
+A lição é geral: **a métrica codifica uma preferência operacional**. Antes de calcular, pergunte qual decisão a previsão sustentará e quanto custam erros de tamanhos e sinais diferentes.
 
 ## Objetivos de aprendizagem
 
-- Calcular e interpretar MAE, MSE e RMSE.
-- Entender R² e suas limitações.
-- Reconhecer sensibilidade a outliers.
-- Evitar MAPE quando o target pode ser zero.
-- Usar múltiplas métricas de forma coerente.
+Ao final, você será capaz de:
 
-## 1. Por que este tema importa para IA?
+- calcular MAE, MSE, RMSE e \(R^2\) manualmente e com `scikit-learn`;
+- explicar por que MAE favorece a mediana condicional e MSE favorece a média condicional;
+- interpretar \(R^2\), inclusive valores negativos e casos degenerados;
+- reconhecer os limites de MAPE, WAPE, sMAPE e MASE;
+- escolher uma métrica coerente com unidade, escala, assimetria de custo e população;
+- agregar erros sem introduzir vieses por lote, grupo ou volume;
+- definir um painel mínimo de métricas antes de consultar o teste.
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+## Pré-requisitos
 
-O foco desta aula é **aprender a escolher métricas de regressão de acordo com a pergunta e o custo do erro.**
+Você deve conhecer média, mediana, variância, resíduos, e os papéis de treino, validação e teste. A [Aula 04](04-regressao-linear-minimos-quadrados.md) introduziu mínimos quadrados; esta aula separa a função usada para treinar da evidência usada para decidir.
 
-## 2. Ideias fundamentais
+## Vocabulário essencial
 
-### 1. MAE
+| Termo | Significado |
+|---|---|
+| **alvo** \(y_i\) | valor real da observação \(i\) |
+| **previsão** \(\hat y_i\) | valor estimado pelo modelo |
+| **resíduo** \(e_i=y_i-\hat y_i\) | erro com sinal; positivo indica subprevisão |
+| **perda** | penalidade aplicada a uma observação |
+| **métrica** | resumo do desempenho em um conjunto |
+| **funcional-alvo** | propriedade prevista: média, mediana ou quantil |
+| **baseline** | regra simples e congelada usada como referência |
+| **microagregação** | calcula juntando todas as observações |
+| **macroagregação** | calcula por grupo e dá o mesmo peso a cada grupo |
 
-Penaliza erros linearmente e é interpretável na unidade do target. É relativamente mais robusta a erros extremos que MSE.
+## 1. Do resíduo à decisão
 
-### 2. MSE/RMSE
+Para \(n\) observações, defina:
 
-Erros quadráticos penalizam fortemente grandes desvios. RMSE volta à unidade original.
+\[
+e_i=y_i-\hat y_i,\qquad i=1,\ldots,n.
+\]
 
-### 3. R²
+O sinal diagnostica viés, mas positivos e negativos se cancelariam em uma média simples. Métricas usuais aplicam uma função \(L(e_i)\):
 
-Compara a soma de quadrados residual a um baseline baseado na média. Pode ser negativo fora da amostra.
+\[
+\text{erro médio}=\frac{1}{n}\sum_{i=1}^{n}L(e_i).
+\]
 
-### 4. Métricas relativas
+A escolha de \(L\) determina o peso de erros grandes e a propriedade da distribuição ótima em expectativa. “Otimizar uma métrica” não é uma decisão neutra.
 
-Percentuais podem ser úteis, mas ficam instáveis quando o denominador se aproxima de zero.
-
-## Aprofundamento — cada métrica responde a uma pergunta diferente
-
-Defina resíduos $e_i=y_i-\hat y_i$. MAE estima a média de $|e_i|$ e sua minimização está ligada à mediana condicional. MSE estima a média de $e_i^2$, amplificando grandes desvios, e sua minimização está ligada à média condicional. RMSE apenas retorna a raiz para a unidade do target.
-
-O coeficiente de determinação fora da amostra é
-
-$$
-R^2=1-\frac{\sum_i(y_i-\hat y_i)^2}{\sum_i(y_i-\bar y_{train})^2}.
-$$
-
-Use o baseline calculado no treino. $R^2<0$ significa que o modelo perde para essa referência no conjunto avaliado. MAPE divide pelo valor real e explode perto de zero; também trata de forma assimétrica erros de sobre e subprevisão. Escolha a métrica antes do resultado e complemente-a com distribuição dos resíduos por faixa, tempo e grupo relevante.
-
-## 3. Equação para guardar
-
-$$
-RMSE=\sqrt{\frac{1}{n}\sum_i(y_i-\hat y_i)^2}
-$$
-
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
-
-## 4. Exemplo mental
-
-Em previsão de demanda, MAE responde ao erro absoluto típico; RMSE destaca falhas grandes que podem causar ruptura de estoque.
-
-## Exemplo numérico resolvido
-
-$y=[10,12,18]$ e $\hat y=[9,15,17]$. Erros absolutos $[1,3,1]$:
-
-$$
-MAE=5/3\approx1{,}667.
-$$
-
-Erros quadráticos $[1,9,1]$:
-
-$$
-MSE=11/3\approx3{,}667,\qquad RMSE\approx1{,}915.
-$$
-
-Como $\bar y=13{,}333$ e $SST\approx34{,}667$, temos $R^2=1-11/34{,}667\approx0{,}683$. As quatro medidas descrevem o mesmo conjunto sob lentes diferentes.
-
-## 5. Laboratório em Python / scikit-learn
-
-```python
-from sklearn.metrics import (
-    mean_absolute_error,
-    mean_squared_error,
-    r2_score
-)
-
-mae = mean_absolute_error(y_test, pred)
-rmse = mean_squared_error(y_test, pred) ** 0.5
-r2 = r2_score(y_test, pred)
-
-print(mae, rmse, r2)
+```mermaid
+flowchart LR
+    A[Decisão real] --> B[Custo dos erros]
+    B --> C{Custo simétrico?}
+    C -- Linear --> D[MAE / mediana]
+    C -- Cresce rápido --> E[MSE ou RMSE / média]
+    C -- Não --> F[Pinball ou custo próprio / quantil]
+    D --> G[Definir agregação e grupos]
+    E --> G
+    F --> G
+    G --> H[Congelar protocolo]
+    H --> I[Avaliar validação e teste]
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+## 2. MAE: custo linear
 
-### Investigação adicional
+O erro absoluto médio é
 
-Crie previsões com erro normal e injete 1%, 5% e 10% de outliers. Trace MAE, RMSE e $R^2$ contra a contaminação. Estratifique resíduos por quantis do target e produza um gráfico previsto × real com linha $y=x$.
+\[
+\operatorname{MAE}=\frac{1}{n}\sum_{i=1}^{n}|y_i-\hat y_i|.
+\]
 
-## Laboratório guiado completo
+Cada unidade adicional de erro adiciona a mesma penalidade. A MAE tem a unidade do alvo, é menos dominada por poucos extremos que MSE e corresponde, sob custo absoluto simétrico, à **mediana condicional**. Dizer que é “robusta a outliers” exige cuidado: um extremo ainda a aumenta, apenas não é elevado ao quadrado.
 
-Use os mesmos resíduos para comparar métricas e depois injete um outlier.
+Para previsão constante \(a\), minimizar \(\mathbb{E}[|Y-a|]\) produz uma mediana de \(Y\). Mover \(a\) para a direita reduz distâncias aos valores à direita e aumenta distâncias aos da esquerda; o equilíbrio ocorre quando ao menos metade da massa está de cada lado.
+
+## 3. MSE e RMSE: erros grandes pesam mais
+
+O erro quadrático médio é
+
+\[
+\operatorname{MSE}=\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat y_i)^2.
+\]
+
+Dobrar \(|e_i|\) quadruplica sua contribuição. O MSE tem unidade ao quadrado. Sua raiz retorna à unidade original:
+
+\[
+\operatorname{RMSE}=
+\sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat y_i)^2}.
+\]
+
+MSE e RMSE ordenam igualmente modelos avaliados nas mesmas observações e pesos, pois a raiz é crescente. Sob perda quadrática, a previsão ótima é a **média condicional**:
+
+\[
+a^\star=\arg\min_a\mathbb{E}[(Y-a)^2]=\mathbb{E}[Y].
+\]
+
+### Armadilha de agregação
+
+Não faça a média dos RMSEs de lotes com tamanhos diferentes. Some erros quadráticos e só então extraia a raiz:
+
+\[
+\operatorname{RMSE}_{global}
+=\sqrt{\frac{\sum_b\operatorname{SSE}_b}{\sum_b n_b}},
+\]
+
+em que \(\operatorname{SSE}_b=\sum_{i\in b}e_i^2\). A média simples dá o mesmo peso a um lote de 10 e a outro de 10 mil exemplos.
+
+## 4. Exemplo resolvido
+
+Considere \(y=[10,12,18]\) e \(\hat y=[9,15,17]\).
+
+1. Resíduos: \(e=[1,-3,1]\).
+2. Erros absolutos: \([1,3,1]\).
+3. Erros quadráticos: \([1,9,1]\).
+
+Logo,
+
+\[
+\operatorname{MAE}=\frac{5}{3}\approx1{,}667,
+\]
+
+\[
+\operatorname{MSE}=\frac{11}{3}\approx3{,}667,\qquad
+\operatorname{RMSE}=\sqrt{\frac{11}{3}}\approx1{,}915.
+\]
+
+A média observada é \(\bar y=13{,}333\), e
+
+\[
+\operatorname{SST}=\sum_i(y_i-\bar y)^2\approx34{,}667.
+\]
+
+Como \(\operatorname{SSE}=11\), \(R^2=1-11/34{,}667\approx0{,}683\). As medidas descrevem o mesmo conjunto sob lentes diferentes.
+
+## 5. \(R^2\): comparação, não porcentagem causal
+
+A definição usual no conjunto de avaliação é
+
+\[
+R^2
+=1-\frac{\sum_i(y_i-\hat y_i)^2}
+{\sum_i(y_i-\bar y)^2},
+\qquad
+\bar y=\frac{1}{n}\sum_i y_i.
+\]
+
+O denominador é o erro de prever a **média do próprio conjunto avaliado**:
+
+- \(R^2=1\): previsões perfeitas;
+- \(R^2=0\): mesmo SSE que essa referência;
+- \(R^2<0\): SSE pior que a referência;
+- não há limite inferior.
+
+\(R^2=0{,}68\) não significa que o modelo “explica causalmente 68%” do fenômeno. Também não revela se o erro é aceitável.
+
+Se todos os \(y_i\) são iguais, o denominador é zero. O `scikit-learn` converte casos não finitos por padrão para valores convenientes à seleção; use `force_finite=False` para auditar o caso bruto. Com uma observação, \(R^2\) não é definido.
+
+### Baseline operacional é outra quantidade
+
+Se a referência válida é a média do treino, uma previsão sazonal ou o modelo implantado, declare um *skill score*:
+
+\[
+S=1-\frac{\sum_i(y_i-\hat y_i)^2}
+{\sum_i(y_i-\hat y_i^{\,base})^2}.
+\]
+
+Ele se parece com \(R^2\), mas responde a outra pergunta. Não substitua silenciosamente \(\bar y\) pela média do treino na fórmula padrão.
+
+## 6. Métricas relativas
+
+### MAPE
+
+\[
+\operatorname{MAPE}
+=\frac{100}{n}\sum_i\left|\frac{y_i-\hat y_i}{y_i}\right|.
+\]
+
+A leitura percentual é atraente, mas MAPE é indefinida em \(y_i=0\), explode perto de zero, trata sobre e subprevisão assimetricamente e não faz sentido se o zero é arbitrário, como em Celsius. Adicionar \(\epsilon\) muda a métrica e pode mudar o ranking; o valor precisaria de justificativa do domínio.
+
+### WAPE
+
+\[
+\operatorname{WAPE}
+=\frac{\sum_i|y_i-\hat y_i|}{\sum_i|y_i|}.
+\]
+
+Evita divisões individuais, mas grupos de grande volume dominam. Se \(\sum_i|y_i|=0\), também é indefinida.
+
+### sMAPE
+
+\[
+\operatorname{sMAPE}
+=\frac{100}{n}\sum_i
+\frac{2|y_i-\hat y_i|}{|y_i|+|\hat y_i|}.
+\]
+
+É limitada quando o denominador não é zero, porém possui variantes incompatíveis e continua problemática em zero/zero. Registre a fórmula, não só o nome.
+
+### MASE
+
+Para série temporal com sazonalidade \(m\), escale o MAE pelo erro ingênuo calculado **somente no treino**:
+
+\[
+\operatorname{MASE}
+=
+\frac{\frac{1}{n}\sum_{i=1}^{n}|y_i-\hat y_i|}
+{\frac{1}{T-m}\sum_{t=m+1}^{T}|y_t^{train}-y_{t-m}^{train}|}.
+\]
+
+MASE menor que 1 indica erro médio menor que o baseline ingênuo. Ela compara escalas, mas exige ordem temporal e denominador não nulo.
+
+| Métrica | Unidade | Funcional | Vantagem | Limite |
+|---|---|---|---|---|
+| MAE | alvo | mediana | direta e linear | suaviza extremos |
+| MSE | alvo² | média | conveniente para otimização | unidade pouco intuitiva |
+| RMSE | alvo | média | destaca erros grandes | dominada por extremos |
+| \(R^2\) | adimensional | ranking quadrático | referência relativa | não mede aceitabilidade |
+| MAPE | % | depende | familiar | zeros e assimetria |
+| WAPE | razão | — | erro agregado | volume domina |
+| sMAPE | % | — | geralmente limitada | variantes e zero/zero |
+| MASE | adimensional | mediana relativa | compara escalas | exige baseline temporal |
+
+## 7. Custos assimétricos: perda pinball
+
+Se subprever custa mais que sobreprever, métricas simétricas não representam a decisão. Para \(u=y-\hat y\),
+
+\[
+\rho_\tau(u)=
+\begin{cases}
+\tau u, & u\ge 0,\\
+(\tau-1)u, & u<0.
+\end{cases}
+\]
+
+Minimizá-la estima o quantil condicional \(\tau\). Com \(\tau=0{,}9\), subprevisões recebem peso 0,9 e sobreprevisões, 0,1. Isso muda explicitamente a pergunta para um quantil alto.
+
+## 8. Peso, grupo e unidade de análise
+
+`sample_weight` é adequado quando observações representam exposições ou custos documentados. Não o use para esconder segmentos difíceis. Registre a origem dos pesos.
+
+Mil previsões de um produto de alto volume e dez de um produto raro ilustram a diferença:
+
+- **micro:** junta observações e será dominada pelo primeiro produto;
+- **macro:** calcula por produto e dá igual peso aos produtos, mas torna cada observação rara influente.
+
+Reporte métrica global, distribuição por grupo, pior grupo, tamanhos amostrais e variação entre folds ou seeds. Eventos repetidos por usuário, paciente, loja ou dispositivo precisam respeitar a unidade de decisão.
+
+## 9. Diagnóstico além do escalar
+
+Inspecione média e mediana dos resíduos, faixas do alvo e da previsão, tempo, grupos, caudas, gráfico real × previsto e maiores erros com contexto.
+
+```mermaid
+flowchart TD
+    A[Split congelado] --> B[Previsões pareadas]
+    B --> C[Métricas primárias]
+    B --> D[Resíduos]
+    D --> E[Tempo e faixa do alvo]
+    D --> F[Grupos e caudas]
+    C --> G[Comparação com baseline]
+    E --> H{Falha sistemática?}
+    F --> H
+    G --> H
+    H -- Sim --> I[Revisar dados, objetivo ou modelo]
+    H -- Não --> J[Confirmar no teste reservado]
+```
+
+Se o modelo foi treinado em \(\log(1+y)\), avaliar só na escala transformada responde a outra pergunta. Inverta para a unidade operacional. Como \(\mathbb{E}[\exp Z]\neq\exp(\mathbb{E}[Z])\), exponenciar a média logarítmica pode introduzir viés de retransformação.
+
+## 10. Laboratório reproduzível
+
+O notebook [`13-metricas-regressao-laboratorio.ipynb`](../notebooks/13-metricas-regressao-laboratorio.ipynb) executa, sem dados externos:
+
+- implementação manual conferida contra `scikit-learn`;
+- mesma MAE com RMSEs diferentes;
+- curva de sensibilidade a outlier;
+- \(R^2\) negativo e baseline separado;
+- instabilidade de MAPE;
+- média, mediana e quantil como funcionais;
+- RMSE global versus média ingênua por lote;
+- micro e macroagregação por grupo;
+- testes automáticos.
+
+**Dependências mínimas:** Python 3.10, NumPy 1.24, pandas 2.0, Matplotlib 3.7 e scikit-learn 1.3. A seed é `20260908` e os dados são sintéticos.
 
 ```python
-import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-y = np.array([10., 12., 18., 20., 22.])
-pred = np.array([9., 15., 17., 19., 23.])
-
-def report(actual, forecast):
-    return {
-        "MAE": mean_absolute_error(actual, forecast),
-        "RMSE": mean_squared_error(actual, forecast) ** 0.5,
-        "R2": r2_score(actual, forecast),
-        "residuos": actual - forecast,
-    }
-
-print("original", report(y, pred))
-pred_outlier = pred.copy(); pred_outlier[-1] = 60
-print("com outlier", report(y, pred_outlier))
+mae = mean_absolute_error(y_true, y_pred)
+mse = mean_squared_error(y_true, y_pred)
+rmse = mse ** 0.5
+r2 = r2_score(y_true, y_pred)
 ```
 
-**Entregue:** cálculo manual; análise de unidade; curva de métricas contra tamanho do outlier; residual plots por faixa do target.
+Na validação cruzada, nomes como `neg_mean_absolute_error` são negados porque *scorers* adotam “maior é melhor”; reverta o sinal antes de comunicar o erro.
 
-### Protocolo investigativo obrigatório
+## 11. Armadilhas comuns
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+- escolher a métrica depois de ver qual favorece o modelo;
+- chamar RMSE de “erro típico” sem examinar a cauda;
+- comparar erros entre alvos de escalas diferentes;
+- interpretar \(R^2\) como porcentagem causal;
+- usar MAPE com zeros ou quase zeros;
+- modificar a fórmula de \(R^2\) sem renomeá-la;
+- fazer média simples de RMSEs de lotes desiguais;
+- misturar horizonte, grupos ou versões do alvo;
+- selecionar o modelo no conjunto de teste;
+- avaliar apenas em log quando a decisão ocorre na escala original.
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+## 12. Checklist prático
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+Antes:
 
-## 6. Conexão com o AI Systems Laboratory
+- [ ] Declare unidade, horizonte e instante da previsão.
+- [ ] Traduza custo de sub e sobreprevisão.
+- [ ] Escolha média, mediana ou quantil.
+- [ ] Defina métrica primária, guardrails e baseline.
+- [ ] Congele split, grupos, pesos e agregação.
+- [ ] Determine o tratamento de zeros e ausentes.
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+Depois:
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+- [ ] Calcule métricas nos mesmos exemplos pareados.
+- [ ] Verifique resíduos, caudas, tempo e grupos.
+- [ ] Confirme unidades e fórmulas.
+- [ ] Reagregue SSE para o RMSE global.
+- [ ] Consulte o teste apenas após selecionar.
+- [ ] Registre versões, seed, limitações e resultados.
 
-## 7. Armadilhas comuns
+## 13. Resumo
 
-- Usar apenas R².
-- Comparar RMSE entre targets em escalas diferentes sem contexto.
-- Usar MAPE com zeros.
-- Escolher métrica depois de ver qual favorece o modelo.
+- MAE penaliza linearmente e se alinha à mediana.
+- MSE e RMSE penalizam quadraticamente e se alinham à média.
+- \(R^2\) compara SSE à dispersão do alvo avaliado, pode ser negativo e não é causal.
+- MAPE, WAPE, sMAPE e MASE respondem a perguntas diferentes e têm limites.
+- Pinball representa custos assimétricos mediante quantis.
+- Métrica, população, pesos, horizonte e agregação formam um contrato único.
+- Um escalar deve vir acompanhado de resíduos e baseline.
 
-## 8. Exercícios
+## 14. Exercícios com respostas comentadas
 
-1. Quando MAE é preferível a RMSE?
-2. R² pode ser negativo? Explique.
-3. Por que MAPE falha com y=0?
-4. Escolha métricas para previsão de tempo de atendimento.
+### 1. MAE igual, risco diferente
 
-## Exercícios de aprofundamento e rubrica
+Para \(A=[2,2,2,2]\) e \(B=[0,0,0,8]\), calcule MAE e RMSE.
 
-### Nível A — reconstrução conceitual
+**Resposta:** ambos têm MAE 2. Para A, RMSE 2. Para B, \(\sqrt{64/4}=4\). Se o custo é superlinear, B é pior.
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+### 2. \(R^2\) negativo
 
-### Nível B — cálculo e implementação
+SST é 100 e SSE do modelo é 160. Qual é o \(R^2\)?
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+**Resposta:** \(1-160/100=-0{,}6\). O erro quadrático é pior que a referência baseada na média avaliada.
 
-### Nível C — contraprova experimental
+### 3. MAPE e zero
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+Para \(y=[0,100]\) e \(\hat y=[1,90]\), por que MAPE falha?
 
-### Nível D — transferência para sistema real
+**Resposta:** o primeiro termo divide por zero. Trocá-lo por \(\epsilon\) faria um erro absoluto de 1 dominar arbitrariamente. Prefira unidade original ou razão agregada coerente.
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+### 4. Média ou mediana?
 
-### Rubrica de 0 a 4
+Tempos são \([4,5,5,6,60]\). Qual constante minimiza MSE e qual minimiza MAE?
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+**Resposta:** a média 16 minimiza MSE; a mediana 5 minimiza MAE. O extremo desloca a média.
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+### 5. Custo assimétrico
 
-## 9. Critério de domínio
+Subprever capacidade custa nove vezes mais que sobreprever igualmente. O que usar?
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+**Resposta:** um quantil alto, como \(\tau=0{,}9\), avaliado por pinball. O quantil exato deve derivar do custo real.
 
-## 10. Referências principais
+### 6. Agregação por lote
 
-- ISLP — model assessment.
-- scikit-learn — Regression metrics.
-- Hyndman & Koehler (2006) — Another Look at Measures of Forecast Accuracy.
-- Murphy — predictive evaluation.
+Um lote de 100 exemplos tem RMSE 1; outro de 1 exemplo tem RMSE 10. A média 5,5 é global?
 
-## Leitura orientada e fontes verificadas
+**Resposta:** não. SSE total \(=100\cdot1^2+1\cdot10^2=200\); RMSE global \(=\sqrt{200/101}\approx1{,}407\).
 
-- scikit-learn — [Regression metrics](https://scikit-learn.org/stable/modules/model_evaluation.html#regression-metrics).
-- James et al. — [ISLP](https://www.statlearning.com/), avaliação de regressão.
-- Murphy — [PML: An Introduction](https://probml.github.io/pml-book/book1.html), losses e decisão estatística.
-- Hastie, Tibshirani e Friedman — [ESL](https://hastie.su.domains/ElemStatLearn/), erro de generalização.
+### 7. Projeto aplicado
+
+Defina um painel para duração de chamados com casos raros muito longos.
+
+**Resposta comentada:** use MAE como leitura central; RMSE ou percentil do erro como guardrail; viés médio; cortes por fila/prioridade; e baseline congelado. Evite MAPE se houver tempos próximos de zero. Preserve o teste até a escolha final.
+
+## 15. Conexões com IA e sistemas reais
+
+Essas métricas aparecem em previsão de demanda, custo, energia e latência; manutenção preditiva; duração; valor de cliente; e propriedades numéricas estimadas por sistemas de IA.
+
+Um escore automático contínuo de um sistema generativo pode ser tratado como alvo de regressão, mas não vira “verdade”: validade do rótulo, erro do avaliador e diferenças entre grupos continuam essenciais. O módulo 13 retomará sistemas completos; aqui o foco é o contrato matemático de um alvo numérico.
+
+## Referências técnicas
+
+1. scikit-learn. [Metrics and scoring: regression metrics](https://scikit-learn.org/stable/modules/model_evaluation.html#regression-metrics). Consultado em 8 set. 2026.
+2. scikit-learn. [`r2_score`](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html). Definição, casos não finitos e `force_finite`.
+3. GNEITING, T. [Making and Evaluating Point Forecasts](https://doi.org/10.1198/jasa.2011.r10138). *Journal of the American Statistical Association*, v. 106, 2011.
+4. HYNDMAN, R. J.; KOEHLER, A. B. [Another look at measures of forecast accuracy](https://doi.org/10.1016/j.ijforecast.2006.03.001). *International Journal of Forecasting*, v. 22, 2006.
+
+## Material complementar
+
+- JAMES, G. et al. [An Introduction to Statistical Learning](https://www.statlearning.com/).
+- MURPHY, K. P. [Probabilistic Machine Learning: An Introduction](https://probml.github.io/pml-book/book1.html).
 
 ## Próxima aula
 
-**Métricas de classificação: matriz de confusão, precision, recall e F1**
+Na **Aula 14 — Métricas de classificação: matriz de confusão, precision, recall e F1**, sairemos de alvos contínuos para decisões categóricas e veremos como a taxa-base altera a leitura das métricas.
