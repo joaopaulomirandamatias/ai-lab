@@ -1,219 +1,468 @@
+<!-- mirandastech-aula-v2 -->
+
 # Aula 10 — Bagging e Random Forest: reduzindo variância com ensembles
 
-**Trilha:** Especialista em IA  
-**Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 09 deste módulo  
-**Objetivo central:** Entender como combinar árvores decorrelacionadas pode produzir modelos mais robustos.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/10-random-forest-bagging-laboratorio.ipynb)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+Na [Aula 09](09-arvores-decisao.md), vimos que uma árvore consegue representar interações e fronteiras não lineares, mas é instável: pequenas mudanças na amostra podem alterar os primeiros splits e a previsão. Nesta aula, transformaremos essa fragilidade em uma estratégia. Em vez de procurar uma árvore perfeita, treinaremos muitas árvores diferentes e agregaremos suas previsões.
 
-## Objetivos de aprendizagem
+Essa é a intuição de **bagging**. A Random Forest acrescenta uma segunda fonte de diversidade: além de reamostrar observações, limita aleatoriamente as features candidatas em cada split. O resultado costuma ser mais estável que uma árvore isolada, desde que as árvores tenham alguma qualidade e não cometam exatamente os mesmos erros.
 
-- Explicar bootstrap aggregation.
-- Entender random subspace em Random Forest.
-- Relacionar ensemble a redução de variância.
-- Usar out-of-bag score.
-- Interpretar limites de feature importance.
+---
 
-## 1. Por que este tema importa para IA?
+## Problema motivador
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+Uma empresa usa dados tabulares para priorizar alertas de fraude. Uma árvore treinada hoje escolhe `valor_transacao` na raiz; outra, após a entrada de poucos casos, escolhe `tempo_desde_ultima_compra`. Ambas ajustam bem o treino, mas a decisão operacional oscila.
 
-O foco desta aula é **entender como combinar árvores decorrelacionadas pode produzir modelos mais robustos.**
+Há dois problemas relacionados:
 
-## 2. Ideias fundamentais
+1. **alta variância:** cada amostra produz uma árvore diferente;
+2. **erros correlacionados:** features dominantes fazem muitas árvores repetir a mesma estrutura.
 
-### 1. Bagging
+Bagging ataca o primeiro problema treinando versões do modelo em amostras bootstrap. Random Forest ataca também o segundo ao sortear as features consideradas em cada nó. A agregação suaviza decisões individuais sem transformar o método em uma fórmula linear.
 
-Treinamos vários modelos em amostras bootstrap e agregamos previsões. Se os erros não forem perfeitamente correlacionados, a média reduz variância.
+## Objetivos
 
-### 2. Random Forest
+Ao final, você deverá ser capaz de:
 
-Além do bootstrap, cada split considera apenas um subconjunto aleatório de features, decorrelacionando as árvores.
+1. explicar bootstrap aggregation passo a passo;
+2. calcular a fração esperada de observações únicas e out-of-bag;
+3. distinguir bagging de Random Forest;
+4. relacionar força individual, diversidade e correlação de erros;
+5. interpretar a fórmula de variância da média de estimadores correlacionados;
+6. usar previsões OOB sem tratá-las como teste universal;
+7. avaliar saturação com `n_estimators` e custo computacional;
+8. selecionar `max_features` e regularização sem consultar o teste;
+9. reconhecer vieses de importância por impureza e limites de interpretabilidade;
+10. construir um experimento reproduzível comparando árvore, bagging e floresta.
 
-### 3. OOB
+### Pré-requisitos
 
-Cada árvore deixa de ver aproximadamente uma parte das observações bootstrap; essas amostras podem fornecer uma estimativa out-of-bag.
+- árvores de decisão, profundidade, folhas e overfitting;
+- amostragem com reposição, esperança e variância;
+- correlação e covariância;
+- classificação probabilística;
+- treino, validação cruzada e teste reservado.
 
-### 4. Paralelismo
+## Vocabulário
 
-As árvores são treinadas de forma independente, favorecendo paralelização.
+| Termo | Significado |
+|---|---|
+| ensemble | modelo que agrega previsões de vários estimadores-base |
+| bootstrap | amostra de tamanho \(n\), sorteada com reposição de um conjunto de \(n\) unidades |
+| bagging | *bootstrap aggregating*: treinar em bootstraps e agregar previsões |
+| estimador-base | algoritmo treinado em cada réplica, como uma árvore |
+| OOB | observações *out-of-bag*, ausentes do bootstrap de uma árvore |
+| random subspace | sorteio de um subconjunto de features candidatas |
+| `max_features` | quantidade de features consideradas a cada split |
+| correlação entre árvores | semelhança dos erros ou previsões dos membros do ensemble |
+| saturação | região em que adicionar árvores quase não muda a métrica |
+| MDI | importância por redução média de impureza |
 
-## Aprofundamento — por que a média de árvores funciona
+---
 
-Se cada árvore tem variância $\sigma^2$ e correlação média $\rho$ com as demais, a variância aproximada da média de $B$ árvores é
+## 1. Bagging: várias versões do mesmo problema
 
-$$
-Var(\bar f)=\sigma^2\left(\rho+\frac{1-\rho}{B}\right).
-$$
+Considere um conjunto de treino \(D=\{(\mathbf{x}_i,y_i)\}_{i=1}^{n}\). Para cada \(b=1,\ldots,B\):
 
-Mais árvores reduzem a parcela independente, mas não a parcela correlacionada. O sorteio de features em cada split busca justamente reduzir $\rho$ sem enfraquecer demais cada árvore.
+1. sorteie, com reposição, uma amostra bootstrap \(D^{(b)}\) de tamanho \(n\);
+2. ajuste um estimador \(\widehat f^{(b)}\) nessa amostra;
+3. armazene sua previsão.
 
-Em uma amostra bootstrap de tamanho $n$, a probabilidade de uma observação não ser escolhida é $(1-1/n)^n\to e^{-1}\approx0{,}368$. Essas observações out-of-bag permitem avaliação interna, mas OOB não substitui automaticamente um teste temporal ou por grupos.
+Em regressão, a agregação natural é a média:
 
-Importância por redução de impureza favorece features com muitos thresholds/categorias. Prefira permutation importance no conjunto de validação e interprete com cuidado features correlacionadas.
+\[
+\widehat f_{bag}(\mathbf{x})=
+\frac{1}{B}\sum_{b=1}^{B}\widehat f^{(b)}(\mathbf{x}).
+\]
 
-## 3. Equação para guardar
+Em classificação, podemos votar nas classes ou calcular a média das probabilidades. O `RandomForestClassifier` do scikit-learn agrega as probabilidades previstas pelas árvores e escolhe a classe com maior média.
 
-$$
-\hat f_{\text{ens}}(x)=\frac{1}{B}\sum_{b=1}^{B}\hat f_b(x)
-$$
+```mermaid
+flowchart LR
+    D[Dados de desenvolvimento] --> B1[Bootstrap 1]
+    D --> B2[Bootstrap 2]
+    D --> BB[Bootstrap B]
+    B1 --> T1[Árvore 1]
+    B2 --> T2[Árvore 2]
+    BB --> TB[Árvore B]
+    T1 --> A[Média de probabilidades]
+    T2 --> A
+    TB --> A
+    A --> P[Previsão do ensemble]
+```
 
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
+Uma árvore individual é um estimador de alta variância. A média cancela parte das oscilações: um split acidentalmente ruim em uma réplica pode ser compensado por outras árvores.
 
-## 4. Exemplo mental
+Bagging ajuda sobretudo quando o estimador-base é **instável**. Se pequenas perturbações do treino não alteram o modelo, as réplicas serão quase iguais e haverá pouco a agregar.
 
-Em risco de crédito, 500 árvores diferentes votam/produzem probabilidades; o ensemble costuma ser mais estável que qualquer árvore isolada.
+## 2. O que realmente existe em um bootstrap?
 
-## Exemplo numérico resolvido
+Cada sorteio escolhe uma das \(n\) observações. Para uma unidade específica, a chance de não aparecer em um sorteio é \(1-1/n\). Depois de \(n\) sorteios:
 
-Com $B=100$ e correlação $\rho=0{,}10$:
+\[
+P(\text{unidade ausente})=\left(1-\frac{1}{n}\right)^n
+\xrightarrow[n\to\infty]{}e^{-1}\approx0{,}368.
+\]
 
-$$
-Var(\bar f)=\sigma^2(0{,}10+0{,}90/100)=0{,}109\sigma^2.
-$$
+Logo, a fração esperada de unidades distintas presentes é:
 
-Se $\rho=0{,}80$, a variância permanece $0{,}802\sigma^2$. O exemplo mostra que “adicionar árvores” não resolve falta de diversidade. `max_features` pode reduzir correlação e melhorar o ensemble.
+\[
+1-e^{-1}\approx0{,}632.
+\]
 
-## 5. Laboratório em Python / scikit-learn
+Isso não significa que o bootstrap tenha apenas \(0{,}632n\) linhas. Ele tem \(n\) linhas, mas várias são repetições. Em média, cerca de 36,8% das unidades ficam fora daquela réplica.
+
+### Exemplo resolvido
+
+Em um treino com 1.000 unidades, cada árvore recebe 1.000 sorteios com reposição. Para uma árvore:
+
+- unidades distintas esperadas: aproximadamente \(632\);
+- unidades OOB esperadas: aproximadamente \(368\);
+- linhas totais do bootstrap: exatamente \(1.000\).
+
+Uma unidade pode ser OOB para algumas árvores e aparecer várias vezes em outras. Isso permite construir uma previsão OOB agregando apenas árvores que não treinaram naquela unidade.
+
+## 3. Por que a média reduz variância?
+
+Suponha que as previsões de \(B\) árvores tenham a mesma variância \(\sigma^2\) e correlação par a par média \(\rho\). A variância da média é:
+
+\[
+\operatorname{Var}(\bar f)=
+\sigma^2\left(\rho+\frac{1-\rho}{B}\right).
+\]
+
+Cada símbolo tem um papel:
+
+- \(\sigma^2\): instabilidade de uma árvore individual;
+- \(\rho\): parcela compartilhada das oscilações;
+- \(B\): número de árvores.
+
+Com árvores independentes, \(\rho=0\), e a variância cai como \(\sigma^2/B\). Com árvores perfeitamente correlacionadas, \(\rho=1\), e a média não reduz variância.
+
+### Exemplo numérico
+
+Para \(B=100\) e \(\rho=0{,}10\):
+
+\[
+\operatorname{Var}(\bar f)=
+\sigma^2\left(0{,}10+\frac{0{,}90}{100}\right)
+=0{,}109\sigma^2.
+\]
+
+Se \(\rho=0{,}80\):
+
+\[
+\operatorname{Var}(\bar f)=0{,}802\sigma^2.
+\]
+
+Adicionar árvores reduz a parcela \((1-\rho)/B\), mas não remove o piso \(\rho\sigma^2\). É por isso que **diversidade**, não apenas quantidade, importa.
+
+## 4. De bagging a Random Forest
+
+Bagging de árvores reamostra linhas, mas cada árvore ainda examina todas as features em cada split. Se uma feature é muito dominante, muitas árvores escolherão regras parecidas e permanecerão correlacionadas.
+
+Random Forest modifica o processo: em cada nó, sorteia um subconjunto de features e procura o melhor split somente dentro dele. O parâmetro `max_features` controla esse sorteio.
+
+```mermaid
+flowchart TD
+    N[Nó atual] --> F[Sortear features candidatas]
+    F --> S[Avaliar limiares apenas nessas features]
+    S --> G[Escolher maior ganho local]
+    G --> L[Filho esquerdo]
+    G --> R[Filho direito]
+    L --> C[Repetir com novo sorteio]
+    R --> C
+```
+
+O subconjunto é sorteado **a cada split**, e não necessariamente uma única vez para toda a árvore. Isso força features menos dominantes a participar, reduzindo correlação entre árvores. Se `max_features` for pequeno demais, cada árvore pode ficar fraca; se for grande demais, a floresta se aproxima do bagging puro.
+
+| Método | Reamostra observações | Sorteia features por split | Treino entre membros | Agregação |
+|---|---|---|---|---|
+| árvore única | não | não | — | nenhuma |
+| bagging de árvores | sim | geralmente não | independente | média/voto |
+| Random Forest | sim, por padrão | sim | independente | média de probabilidades |
+| boosting | não é o mecanismo central | depende | sequencial | soma ponderada |
+
+Boosting aparece apenas para contraste. Na [Aula 11](11-gradient-boosting.md), estudaremos como novos modelos corrigem erros anteriores de forma sequencial.
+
+## 5. OOB: avaliação interna sem um conjunto extra
+
+Para cada unidade \(i\), considere somente as árvores cujos bootstraps não contêm \(i\). A previsão OOB é:
+
+\[
+\widehat f_{OOB}(\mathbf{x}_i)=
+\frac{1}{|\mathcal{B}_{-i}|}
+\sum_{b\in\mathcal{B}_{-i}}\widehat f^{(b)}(\mathbf{x}_i),
+\]
+
+onde \(\mathcal{B}_{-i}\) é o conjunto de árvores para as quais \(i\) ficou fora do bootstrap.
+
+Com árvores suficientes, quase toda unidade recebe várias previsões OOB. O score OOB pode estimar generalização durante o desenvolvimento e ajudar no diagnóstico de saturação.
+
+### O que OOB não resolve
+
+- **tempo:** bootstraps aleatórios podem treinar no futuro e prever o passado;
+- **grupos:** linhas da mesma pessoa podem aparecer dentro e fora do bootstrap;
+- **drift:** a distribuição OOB ainda vem do mesmo período e domínio;
+- **preprocessing:** um transformador ajustado em todo o desenvolvimento pode ter visto as linhas OOB;
+- **seleção repetida:** experimentar muitas configurações e escolher pelo OOB também otimiza sobre essa estimativa.
+
+Portanto, OOB não substitui automaticamente validação temporal, por grupo, pipeline completo ou teste reservado. Ele é uma evidência adicional cuja validade depende da estrutura dos dados.
+
+## 6. Hiperparâmetros que mudam o comportamento
+
+| Parâmetro | Pergunta que responde | Trade-off |
+|---|---|---|
+| `n_estimators` | quantas árvores agregar? | estabilidade versus custo |
+| `max_features` | quantas features competem por split? | força individual versus decorrelação |
+| `bootstrap` | reamostrar observações? | diversidade e possibilidade de OOB |
+| `max_samples` | qual tamanho de cada bootstrap? | diversidade versus informação por árvore |
+| `max_depth` | quão profunda pode ser cada árvore? | flexibilidade versus overfitting/custo |
+| `min_samples_leaf` | qual suporte mínimo por folha? | suavização versus detalhe |
+| `class_weight` | como ponderar classes? | custo/raridade; será aprofundado na Aula 16 |
+| `n_jobs` | quantos processos/threads usar? | tempo versus recursos e contenção |
+
+`n_estimators` normalmente não cria o mesmo padrão clássico de overfitting que aumentar indefinidamente a profundidade de uma árvore. O ganho, porém, satura: depois de certo ponto, mais árvores consomem memória, treino e latência quase sem alterar a métrica.
+
+Uma floresta também pode overfitar por árvores excessivamente adaptadas, features ruidosas, leakage ou busca de hiperparâmetros agressiva. “Mais árvores” não corrige um protocolo inválido.
+
+## 7. Protocolo experimental honesto
+
+Uma comparação defensável segue esta sequência:
+
+1. declare unidade de análise, target, instante de predição e métrica;
+2. reserve o teste segundo tempo, grupo ou processo real;
+3. fixe folds do conjunto de desenvolvimento;
+4. inclua um `DummyClassifier` e uma árvore única;
+5. compare bagging e Random Forest nos mesmos folds;
+6. selecione `max_features`, `min_samples_leaf` e demais controles no desenvolvimento;
+7. examine média e dispersão entre folds e seeds;
+8. use OOB como diagnóstico, não como autorização para abrir o teste;
+9. escolha um número de árvores em região de saturação;
+10. reajuste no desenvolvimento completo e avalie uma única vez no teste.
+
+```mermaid
+flowchart LR
+    D[Dados brutos] --> S[Split correto]
+    S --> DEV[Desenvolvimento]
+    S --> T[Teste lacrado]
+    DEV --> CV[Folds fixos]
+    CV --> C[Árvore, bagging e floresta]
+    C --> SEL[Selecionar configuração]
+    SEL --> OOB[Diagnóstico OOB e saturação]
+    OOB --> FIT[Ajuste final no desenvolvimento]
+    FIT --> E[Avaliação única]
+    T --> E
+```
+
+Árvores não exigem padronização, mas categorias, ausentes e seleção de features ainda precisam de tratamento sem vazamento. Se houver preprocessing aprendido, coloque o modelo em um `Pipeline` e faça validação do pipeline completo.
+
+## 8. Estabilidade, número de árvores e seeds
+
+Fixar `random_state` torna uma execução reproduzível. Isso não prova estabilidade. Para medir estabilidade, repita o treinamento com seeds ou reamostragens distintas e compare:
+
+- distribuição da métrica;
+- concordância das classes previstas;
+- variação das probabilidades;
+- custo e tempo;
+- importância ou ranking de features, quando necessário.
+
+Uma árvore pode alternar muito entre seeds/amostras. A média de centenas de árvores costuma variar menos. Ainda assim, florestas treinadas em dados diferentes podem discordar, sobretudo perto da fronteira de decisão ou sob mudança de domínio.
+
+## 9. Importância de features: útil, mas não causal
+
+`feature_importances_` calcula a redução total de impureza atribuída a cada feature, ponderada pelo número de amostras que chega aos nós e agregada entre árvores. É rápida, porém pode favorecer features com muitos valores e repartir importância de modo instável entre features correlacionadas.
+
+Ela não responde:
+
+- o que causou o target;
+- quanto a previsão mudaria sob intervenção;
+- se a feature funciona fora do domínio observado;
+- se uma variável proxy é social ou juridicamente aceitável.
+
+Permutation importance em validação mede queda de desempenho após embaralhar uma feature, mas também sofre com correlação: outra feature pode substituir o sinal. A interpretação será aprofundada na Aula 20. Aqui, use importâncias somente como diagnóstico, em dados fora do ajuste, e documente suas limitações.
+
+## 10. Probabilidades, margem e incerteza
+
+A média de probabilidades costuma ser menos extrema que a saída de uma folha isolada, mas não é sinônimo de probabilidade calibrada. Árvores correlacionadas podem concordar e estar erradas juntas.
+
+A dispersão entre árvores descreve desacordo interno do ensemble; não captura automaticamente incerteza por drift, amostragem enviesada ou ausência de suporte. Calibração, thresholds e custos dos erros serão tratados nas Aulas 15 e 16.
+
+## 11. Custo computacional e operação
+
+Bagging e Random Forest permitem paralelizar árvores porque cada uma é treinada independentemente. Isso difere do boosting sequencial. Entretanto:
+
+- `n_jobs=-1` pode disputar CPU e memória com outros processos;
+- modelos grandes aumentam tamanho do artefato e tempo de inferência;
+- latência de cauda importa em serviços online;
+- reproducibilidade requer registrar versão, seed, features e hiperparâmetros;
+- reentreinar com dados novos pode alterar probabilidades e importâncias.
+
+O menor ensemble dentro da região de saturação pode ser uma escolha operacional melhor que o campeão por uma diferença irrelevante de métrica.
+
+## 12. Laboratório reproduzível
+
+O notebook utiliza dados sintéticos tabulares, sem rede ou credenciais, e reserva o teste antes da seleção. O roteiro:
+
+1. confirma matematicamente as proporções bootstrap/OOB;
+2. implementa bagging manual de árvores e compara com a biblioteca;
+3. usa os mesmos folds para árvore, bagging e Random Forest;
+4. seleciona `max_features` e `min_samples_leaf` somente no desenvolvimento;
+5. compara OOB e validação cruzada;
+6. mede correlação entre árvores;
+7. constrói curva de saturação com `n_estimators`;
+8. compara variabilidade entre seeds em validação interna;
+9. abre o teste uma única vez para árvore e floresta pré-declaradas.
+
+Dependências mínimas:
+
+```text
+numpy>=1.26
+pandas>=2.2
+matplotlib>=3.8
+scikit-learn>=1.4
+```
+
+Seed global: `20260908`. Todos os resultados centrais têm verificações automáticas.
+
+### Código mínimo
 
 ```python
 from sklearn.ensemble import RandomForestClassifier
 
-rf = RandomForestClassifier(
-    n_estimators=500,
+forest = RandomForestClassifier(
+    n_estimators=300,
     max_features="sqrt",
-    min_samples_leaf=5,
+    min_samples_leaf=3,
+    bootstrap=True,
     oob_score=True,
     n_jobs=-1,
-    random_state=42
+    random_state=20260908,
 )
-rf.fit(X_train, y_train)
-print("OOB:", rf.oob_score_)
+forest.fit(X_dev, y_dev)
+print(forest.oob_score_)
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+O score isolado não encerra o experimento. Ele precisa de baseline, protocolo de split, comparação justa, incerteza e limitações.
 
-### Investigação adicional
+## 13. Armadilhas e erros comuns
 
-Compare árvore única, bagging sem sorteio de features e Random Forest para 10, 50, 200 e 500 árvores. Registre OOB e CV, variabilidade entre seeds e permutation importance no teste. Verifique quando o ganho satura.
+- **Confundir linhas e unidades únicas no bootstrap.** Há \(n\) sorteios, mas cerca de \(0{,}632n\) unidades distintas.
+- **Achar que 36,8% é um conjunto OOB fixo.** Cada árvore deixa um subconjunto diferente de fora.
+- **Usar OOB em séries temporais ou grupos repetidos sem crítica.** A independência necessária pode falhar.
+- **Selecionar tudo pelo OOB e chamar o mesmo score de avaliação final.** Houve adaptação à estimativa.
+- **Aumentar `n_estimators` sem medir saturação e custo.** Mais não é automaticamente melhor.
+- **Achar que `max_features` sorteia um conjunto único por árvore.** O sorteio ocorre a cada split.
+- **Usar importância por impureza como causalidade.** Ela descreve o ajuste do modelo.
+- **Comparar modelos em folds diferentes.** Parte da diferença pode vir da amostragem.
+- **Aplicar preprocessing antes dos folds.** O ensemble continua sujeito a leakage.
+- **Confundir seed fixa com robustez.** Repetibilidade e estabilidade são propriedades distintas.
+- **Ignorar probabilidades.** Mesma classe prevista pode esconder mudanças relevantes de confiança.
 
-## Laboratório guiado completo
+## 14. Checklist prático
 
-Compare árvore, bagging e floresta e verifique saturação com o número de árvores.
+- [ ] Defini unidade de análise e instante de predição.
+- [ ] Reservei o teste antes da seleção.
+- [ ] Usei baseline e árvore única como referências.
+- [ ] Mantive os mesmos folds em todas as comparações.
+- [ ] Registrei bootstrap, `max_samples` e `max_features`.
+- [ ] Medi média e dispersão da métrica.
+- [ ] Comparei OOB com CV sem tratá-los como idênticos.
+- [ ] Verifiquei saturação do número de árvores.
+- [ ] Testei estabilidade entre seeds no desenvolvimento.
+- [ ] Mantive preprocessing dentro dos folds.
+- [ ] Tratei importâncias como diagnóstico, não causalidade.
+- [ ] Reportei custo, latência e tamanho quando relevantes.
+- [ ] Abri o teste apenas depois de congelar a configuração.
 
-```python
-from sklearn.datasets import load_breast_cancer
-from sklearn.ensemble import BaggingClassifier, RandomForestClassifier
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.tree import DecisionTreeClassifier
+## 15. Resumo
 
-X, y = load_breast_cancer(return_X_y=True)
-cv = StratifiedKFold(5, shuffle=True, random_state=42)
-models = {
-    "tree": DecisionTreeClassifier(random_state=42),
-    "bagging": BaggingClassifier(n_estimators=200, random_state=42, n_jobs=-1),
-    "forest": RandomForestClassifier(n_estimators=200, max_features="sqrt",
-                                     oob_score=True, random_state=42, n_jobs=-1),
-}
-for name, model in models.items():
-    score = cross_val_score(model, X, y, cv=cv, scoring="roc_auc", n_jobs=-1)
-    model.fit(X, y)
-    print(name, score.mean(), score.std(), getattr(model, "oob_score_", None))
-```
+- Bagging treina estimadores em amostras bootstrap e agrega previsões.
+- Um bootstrap de tamanho \(n\) contém cerca de 63,2% das unidades distintas; cerca de 36,8% ficam OOB para uma árvore.
+- A média reduz a variância apenas na parcela não compartilhada entre os estimadores.
+- Random Forest sorteia features em cada split para decorrelacionar árvores.
+- `max_features` negocia força individual e diversidade.
+- OOB é uma estimativa interna útil, mas não corrige tempo, grupos, drift ou preprocessing contaminado.
+- Mais árvores estabilizam o ensemble até uma região de saturação, com custo crescente.
+- Importância por impureza pode ser enviesada e nunca estabelece causalidade.
+- Um experimento honesto mantém teste lacrado, folds fixos e comparação com baselines.
 
-**Entregue:** curva 10–1.000 árvores; OOB versus CV; variabilidade por seed; permutation importance e crítica às importâncias por impureza.
+## 16. Exercícios com respostas comentadas
 
-### Protocolo investigativo obrigatório
+### 1. Fração OOB
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+Qual a fração limite de unidades ausentes de um bootstrap de tamanho \(n\)?
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+**Resposta:**
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+\[
+\lim_{n\to\infty}\left(1-\frac1n\right)^n=e^{-1}\approx0{,}368.
+\]
 
-## 6. Conexão com o AI Systems Laboratory
+É uma expectativa para cada árvore, não uma divisão fixa do dataset.
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+### 2. Variância com árvores independentes
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+Se \(B=25\), \(\rho=0\) e cada árvore tem variância \(4\), qual a variância da média?
 
-## 7. Armadilhas comuns
+**Resposta:** \(4/25=0{,}16\). A redução forte depende da hipótese de correlação zero.
 
-- Achar que mais árvores elimina todo overfitting.
-- Usar importância por impureza como evidência causal.
-- Ignorar custo de memória/inferência.
-- Comparar OOB e teste como se fossem exatamente equivalentes.
+### 3. Efeito da correlação
 
-## 8. Exercícios
+Com \(B\to\infty\), o que ocorre na fórmula?
 
-1. Explique por que decorrelação entre árvores ajuda.
-2. O que é bootstrap?
-3. Para que serve OOB?
-4. Compare Random Forest e uma árvore única em viés/variância.
+**Resposta:** o termo \((1-\rho)/B\) tende a zero e resta \(\rho\sigma^2\). Árvores adicionais não removem a parcela correlacionada.
 
-## Exercícios de aprofundamento e rubrica
+### 4. Bagging versus Random Forest
 
-### Nível A — reconstrução conceitual
+**Resposta:** ambos podem usar bootstraps e agregação. Random Forest também sorteia features candidatas em cada split, reduzindo a correlação entre árvores.
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+### 5. OOB substitui teste temporal?
 
-### Nível B — cálculo e implementação
+**Resposta:** não. O bootstrap ignora a direção do tempo e pode usar observações futuras para construir árvores que predizem observações passadas. O split deve representar o uso real.
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+### 6. Por que `n_estimators=10.000` pode ser inadequado?
 
-### Nível C — contraprova experimental
+**Resposta:** a métrica pode já ter saturado, enquanto memória, treino, armazenamento e latência continuam crescendo. A decisão deve considerar incerteza e custo.
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+### 7. Duas features correlacionadas recebem importâncias baixas. Isso prova irrelevância?
 
-### Nível D — transferência para sistema real
+**Resposta:** não. O sinal pode ser repartido ou uma feature pode substituir a outra. Importe o protocolo e faça análise de ablação/permutação em validação, sem inferência causal.
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+### 8. Protocolo por usuário
 
-### Rubrica de 0 a 4
+Cada usuário gera vinte eventos. Como validar uma floresta?
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+**Resposta:** divida por usuário com folds de grupo; todas as linhas de uma pessoa ficam no mesmo lado. OOB por linha não garante esse isolamento. Reserve usuários ou períodos finais para teste conforme o cenário.
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+### 9. Contraprova
 
-## 9. Critério de domínio
+Compare vinte árvores únicas e vinte florestas, variando a seed em uma validação interna fixa.
+
+**Resposta esperada:** as árvores tendem a apresentar maior dispersão de métrica e probabilidade. Se não ocorrer, investigue estabilidade do problema, regularização e correlação das florestas em vez de forçar a conclusão.
+
+## Critério de domínio
 
 Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
 
-## 10. Referências principais
+1. derivar \(e^{-1}\) para a fração OOB;
+2. explicar a fórmula de variância de estimadores correlacionados;
+3. implementar bagging simples antes de usar a abstração pronta;
+4. distinguir OOB, validação cruzada e teste;
+5. justificar `max_features`, `min_samples_leaf` e `n_estimators`;
+6. demonstrar estabilidade e saturação com evidência reproduzível;
+7. explicar por que importância preditiva não é causalidade.
 
-- Breiman (2001) — Random Forests.
-- ISLP — Bagging, Random Forests and Boosting.
-- Hastie et al. — Random Forests.
-- scikit-learn — Ensemble methods.
+## Referências técnicas
 
-## Leitura orientada e fontes verificadas
-
-- Breiman (2001) — [Random Forests](https://link.springer.com/article/10.1023/A%3A1010933404324).
-- Breiman (1996) — *Bagging Predictors*, Machine Learning 24.
-- scikit-learn — [Forest ensembles](https://scikit-learn.org/stable/modules/ensemble.html#forest).
-- scikit-learn — [Permutation feature importance](https://scikit-learn.org/stable/modules/permutation_importance.html).
+- Breiman, L. — [*Bagging Predictors*](https://doi.org/10.1007/BF00058655), *Machine Learning* 24, 123–140, 1996.
+- Breiman, L. — [*Random Forests*](https://doi.org/10.1023/A:1010933404324), *Machine Learning* 45, 5–32, 2001.
+- scikit-learn — [Ensembles: forests and randomized trees](https://scikit-learn.org/stable/modules/ensemble.html#forest).
+- scikit-learn — [`RandomForestClassifier`](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html).
+- James, Witten, Hastie, Tibshirani e Taylor — [An Introduction to Statistical Learning](https://www.statlearning.com/), capítulo de métodos baseados em árvores.
+- Hastie, Tibshirani e Friedman — [The Elements of Statistical Learning](https://hastie.su.domains/ElemStatLearn/), seções de bagging e Random Forest.
 
 ## Próxima aula
 
-**Boosting e Gradient Boosting: aprendendo com os erros anteriores**
+Na [Aula 11 — Boosting e Gradient Boosting](11-gradient-boosting.md), trocaremos o paralelismo independente por uma construção sequencial: cada novo modelo tentará corrigir os erros que o ensemble aditivo ainda comete.
