@@ -1,225 +1,597 @@
+<!-- mirandastech-aula-v2 -->
+
 # Aula 04 — Regressão linear e mínimos quadrados
 
-**Trilha:** Especialista em IA  
-**Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 03 deste módulo  
-**Objetivo central:** Conectar o que foi aprendido em Álgebra Linear e Estatística ao primeiro modelo supervisionado clássico.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/04-regressao-linear-minimos-quadrados-laboratorio.ipynb)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+> Um prédio precisa prever consumo de energia para planejar a operação do dia seguinte. Um modelo linear consegue produzir uma previsão útil, explicar como cada variável entra no cálculo e revelar, pelos próprios erros, quando sua hipótese é insuficiente.
 
-## Objetivos de aprendizagem
+A regressão linear é um dos melhores pontos de entrada em Machine Learning porque reúne álgebra linear, otimização, estatística e avaliação fora da amostra. Ela também serve como **baseline forte e auditável**: antes de justificar um modelo complexo, precisamos saber o que uma combinação linear bem construída já resolve.
 
-- Interpretar coeficientes de regressão.
-- Entender mínimos quadrados.
-- Relacionar matriz X, vetor de parâmetros e previsão.
-- Analisar resíduos.
-- Reconhecer limitações da interpretação causal.
+Na [Aula 03](03-preprocessamento-pipelines-leakage.md), você aprendeu a preservar a fronteira de `fit`. Aqui, usará esse protocolo para ajustar o primeiro modelo supervisionado clássico, sem confundir bom ajuste, boa generalização e causalidade.
 
-## 1. Por que este tema importa para IA?
+## Objetivos
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+Ao final, você deverá ser capaz de:
 
-O foco desta aula é **conectar o que foi aprendido em álgebra linear e estatística ao primeiro modelo supervisionado clássico.**
+- escrever regressão linear para uma observação e em forma matricial;
+- rastrear os shapes de $X$, $y$, $\beta$, $\widehat y$ e resíduos;
+- explicar o significado do intercepto e dos coeficientes;
+- derivar o gradiente da soma dos quadrados dos resíduos;
+- obter e interpretar as equações normais;
+- compreender mínimos quadrados como projeção no espaço das colunas;
+- resolver OLS com `numpy.linalg.lstsq` sem calcular inversa explicitamente;
+- reconhecer posto deficiente, multicolinearidade e mau condicionamento;
+- comparar solução numérica, gradiente descendente e `LinearRegression`;
+- avaliar fora da amostra contra um baseline;
+- diagnosticar não linearidade, heterocedasticidade, outliers e extrapolação;
+- separar associação preditiva de afirmação causal.
 
-## 2. Ideias fundamentais
+## Pré-requisitos
 
-### 1. Modelo linear
+- vetores, matrizes, produto interno, transposição e norma Euclidiana;
+- média, variância e covariância;
+- treino, validação, teste e baseline;
+- pré-processamento dentro de pipeline, sem data leakage.
 
-A regressão linear assume uma relação aproximada $\hat y=\beta_0+x^T\beta$. Linear refere-se aos parâmetros; features podem ser transformadas, por exemplo com termos polinomiais.
+## Vocabulário essencial
 
-### 2. Mínimos quadrados
+| Termo | Significado |
+|---|---|
+| variável resposta | quantidade contínua que queremos prever, $y$ |
+| matriz de projeto | matriz $X$ com observações nas linhas e features nas colunas |
+| coeficiente | peso $\beta_j$ associado à feature $x_j$ |
+| intercepto | previsão quando todas as features valem zero |
+| valor ajustado | previsão $\widehat y_i$ para a observação $i$ |
+| resíduo | diferença observada menos ajustada, $e_i=y_i-\widehat y_i$ |
+| SSE/RSS | soma dos quadrados dos resíduos |
+| OLS | mínimos quadrados ordinários, *ordinary least squares* |
+| posto | número de direções linearmente independentes de uma matriz |
+| condicionamento | sensibilidade da solução a pequenas perturbações |
+| extrapolação | previsão fora da região representada no treinamento |
 
-Os coeficientes são escolhidos para minimizar a soma dos resíduos quadráticos. A solução possui ligação direta com projeções ortogonais.
+## 1. O problema de previsão
+
+Suponha que, para cada dia, temos temperatura, ocupação do prédio e indicador de dia útil. Queremos prever consumo em kWh. Para uma observação com $p$ features:
+
+\[
+\widehat y=\beta_0+\beta_1x_1+\beta_2x_2+\cdots+\beta_px_p.
+\]
+
+- $\widehat y$: previsão;
+- $\beta_0$: intercepto;
+- $\beta_j$: coeficiente da feature $j$;
+- $x_j$: valor observado da feature $j$.
+
+O modelo é **linear nos parâmetros**. As features podem incluir transformações definidas antes do ajuste, como $x^2$, $\log x$ ou interações. Por exemplo,
+
+\[
+\widehat y=\beta_0+\beta_1x+\beta_2x^2
+\]
+
+continua sendo uma regressão linear em $\beta_0,\beta_1,\beta_2$, embora a curva prevista não seja reta em $x$. Feature engineering será aprofundada na Aula 19; aqui trabalharemos com a representação já definida.
+
+## 2. Forma matricial e shapes
+
+Com $n$ observações e $p$ features, inclua uma coluna de uns para o intercepto:
+
+\[
+X=
+\begin{bmatrix}
+1 & x_{11} & \cdots & x_{1p}\\
+1 & x_{21} & \cdots & x_{2p}\\
+\vdots & \vdots & \ddots & \vdots\\
+1 & x_{n1} & \cdots & x_{np}
+\end{bmatrix},
+\qquad
+\beta=
+\begin{bmatrix}
+\beta_0\\
+\beta_1\\
+\vdots\\
+\beta_p
+\end{bmatrix}.
+\]
+
+Então:
+
+\[
+\widehat y=X\beta.
+\]
+
+| Objeto | Shape | Papel |
+|---|---:|---|
+| $X$ | $n\times(p+1)$ | matriz de projeto com intercepto |
+| $\beta$ | $(p+1)\times1$ | parâmetros |
+| $y$ | $n\times1$ | respostas observadas |
+| $\widehat y$ | $n\times1$ | previsões |
+| $e=y-\widehat y$ | $n\times1$ | resíduos |
+
+Conferir shapes evita muitos erros de implementação. Em `scikit-learn`, `X` deve ser bidimensional, mesmo com uma feature; use `x.reshape(-1, 1)`. O vetor `y` costuma ter shape `(n,)`.
+
+## 3. O que significa cada coeficiente
+
+Mantendo as outras features do modelo constantes, $\beta_j$ é a variação prevista em $y$ para uma unidade adicional de $x_j$.
+
+Se
+
+\[
+\widehat{consumo}=120+3{,}5\cdot temperatura+18\cdot ocupacao,
+\]
+
+então, sob o modelo:
+
+- 1 °C adicional está associado a 3,5 kWh adicionais, mantendo ocupação constante;
+- uma unidade adicional na escala de ocupação está associada a 18 kWh;
+- 120 kWh é a previsão quando temperatura e ocupação valem zero.
+
+O intercepto pode não possuir interpretação física se “todas as features iguais a zero” estiver fora do domínio observado. Centralizar features pode torná-lo mais interpretável.
+
+Coeficientes dependem de unidade, codificação e conjunto de variáveis. Trocar reais por milhares de reais altera a magnitude numérica. Incluir uma variável correlacionada pode mudar coeficientes sem alterar muito a previsão.
+
+## 4. A função de perda
+
+Para cada observação:
+
+\[
+e_i=y_i-\widehat y_i.
+\]
+
+OLS escolhe $\beta$ que minimiza a soma dos quadrados:
+
+\[
+\widehat\beta
+=\arg\min_{\beta}\operatorname{SSE}(\beta)
+=\arg\min_{\beta}\sum_{i=1}^{n}(y_i-x_i^T\beta)^2
+=\arg\min_{\beta}\lVert y-X\beta\rVert_2^2.
+\]
+
+Elevar ao quadrado:
+
+- impede cancelamento entre erros positivos e negativos;
+- penaliza erros grandes de forma quadrática;
+- produz uma função convexa e diferenciável;
+- sob ruído Gaussiano homoscedástico, coincide com máxima verossimilhança.
+
+Essa escolha também traz sensibilidade a outliers. Um resíduo de magnitude 10 contribui 100 para a SSE; um de magnitude 2 contribui apenas 4.
+
+MSE divide a SSE por $n$; RMSE tira a raiz. Esses fatores não mudam o minimizador, mas mudam a unidade e a escala reportada.
+
+## 5. Exemplo resolvido passo a passo
+
+Considere os pontos \((0,1)\), \((1,3)\) e \((2,5)\).
+
+### Passo 1 — matriz e vetor
+
+\[
+X=
+\begin{bmatrix}
+1&0\\
+1&1\\
+1&2
+\end{bmatrix},
+\qquad
+y=
+\begin{bmatrix}
+1\\3\\5
+\end{bmatrix}.
+\]
+
+### Passo 2 — observe o padrão
+
+A cada unidade adicional de $x$, $y$ cresce 2. Quando $x=0$, $y=1$. Logo, candidato:
+
+\[
+\widehat y=1+2x,
+\qquad
+\widehat\beta=
+\begin{bmatrix}1\\2\end{bmatrix}.
+\]
+
+### Passo 3 — previsões e resíduos
+
+\[
+\widehat y=X\widehat\beta=
+\begin{bmatrix}1\\3\\5\end{bmatrix},
+\qquad
+e=y-\widehat y=0.
+\]
+
+A SSE é zero.
+
+Agora troque o último alvo por 8. A solução OLS passa a
+
+\[
+\widehat y=0{,}5+3{,}5x.
+\]
+
+As previsões são \([0{,}5,4,7{,}5]\), os resíduos \([0{,}5,-1,0{,}5]\) e
+
+\[
+\operatorname{SSE}=0{,}5^2+(-1)^2+0{,}5^2=1{,}5.
+\]
+
+Um único valor alterou a inclinação de 2 para 3,5. Esse exemplo pequeno torna visível a influência quadrática de observações extremas.
+
+## 6. Derivando as equações normais
+
+Expanda a loss:
+
+\[
+J(\beta)=(y-X\beta)^T(y-X\beta)
+=y^Ty-2\beta^TX^Ty+\beta^TX^TX\beta.
+\]
+
+O gradiente é:
+
+\[
+\nabla_{\beta}J(\beta)=2X^T(X\beta-y).
+\]
+
+No mínimo, o gradiente vale zero:
+
+\[
+X^T(X\widehat\beta-y)=0
+\quad\Longrightarrow\quad
+X^TX\widehat\beta=X^Ty.
+\]
+
+Essas são as **equações normais**. Se $X$ possui colunas linearmente independentes, $X^TX$ é inversível e podemos escrever:
+
+\[
+\widehat\beta=(X^TX)^{-1}X^Ty.
+\]
+
+Essa expressão explica a solução, mas **não recomenda calcular a inversa explicitamente**. Formar $X^TX$ piora o condicionamento numérico; QR, SVD ou rotinas de mínimos quadrados resolvem o problema com mais estabilidade.
+
+Em NumPy:
+
+```python
+beta, residuals, rank, singular_values = np.linalg.lstsq(X, y, rcond=None)
+```
+
+Além dos coeficientes, a rotina informa posto e valores singulares, úteis para diagnóstico.
+
+## 7. A geometria: projeção ortogonal
+
+O vetor de previsões $\widehat y=X\widehat\beta$ pertence ao espaço gerado pelas colunas de $X$. OLS procura nesse espaço o ponto mais próximo de $y$.
+
+A condição das equações normais equivale a:
+
+\[
+X^T(y-X\widehat\beta)=X^Te=0.
+\]
+
+Logo, o vetor de resíduos é ortogonal a cada coluna de $X$. Com intercepto, uma das colunas é o vetor de uns, então:
+
+\[
+\sum_{i=1}^{n}e_i=0
+\]
+
+até erro numérico. A média dos resíduos de treino é zero quando o modelo OLS contém intercepto.
+
+```mermaid
+flowchart LR
+    Y["y observado"] --> P["projeção no espaço coluna de X"]
+    P --> YH["ŷ = Xβ̂"]
+    Y --> E["resíduo e = y - ŷ"]
+    YH --> E
+    E --> O["Xᵀe = 0: ortogonalidade no treino"]
+```
+
+A ortogonalidade é propriedade do ajuste no treino. Não espere soma zero ou ortogonalidade no teste.
+
+## 8. Quando a solução não é única
+
+Se uma coluna é combinação linear exata de outras, $X$ tem posto deficiente. Exemplo: incluir temperatura em °C e a mesma temperatura em °F junto com intercepto cria dependência exata.
+
+Se duas features são idênticas, há vários vetores $\beta$ com as mesmas previsões. A pseudoinversa/SVD pode retornar a solução de menor norma, mas o coeficiente individual deixa de ser identificável.
+
+Mesmo sem dependência exata, colunas muito correlacionadas geram **multicolinearidade**. Consequências:
+
+- pequenos ruídos alteram muito os coeficientes;
+- sinais e magnitudes tornam-se instáveis;
+- previsões dentro da região observada podem continuar razoáveis;
+- extrapolação e interpretação tornam-se frágeis.
+
+O número de condição baseado nos valores singulares mede sensibilidade:
+
+\[
+\kappa(X)=\frac{\sigma_{\max}}{\sigma_{\min}}.
+\]
+
+Quanto maior $\kappa$, maior a amplificação potencial de perturbações. Não existe um limiar universal: unidade, precisão numérica e objetivo importam. Na [Aula 05](05-regularizacao-ridge-lasso-elastic-net.md), veremos como penalização pode estabilizar esse cenário.
+
+## 9. Gradiente descendente
+
+Também podemos minimizar o MSE iterativamente:
+
+\[
+J(\beta)=\frac{1}{n}\lVert X\beta-y\rVert_2^2,
+\qquad
+\nabla J(\beta)=\frac{2}{n}X^T(X\beta-y),
+\]
+
+\[
+\beta^{(t+1)}=\beta^{(t)}-\eta\nabla J(\beta^{(t)}),
+\]
+
+onde $\eta$ é a taxa de aprendizado.
+
+Para OLS pequeno, `lstsq` é preferível. O gradiente descendente é didático porque antecipa a otimização de modelos maiores:
+
+- taxa muito pequena converge devagar;
+- taxa muito grande oscila ou diverge;
+- features em escalas muito diferentes tornam o caminho difícil;
+- critérios de parada devem observar gradiente, melhoria ou número máximo de iterações.
+
+Padronizar as features no treino melhora o condicionamento do problema iterativo. O intercepto pode ser tratado por uma coluna de uns ou separadamente.
+
+## 10. Avaliação honesta e baseline
+
+Um modelo OLS minimiza erro **no treino**. Isso não garante menor erro em dados novos. O fluxo correto reutiliza a disciplina das aulas anteriores:
+
+```mermaid
+flowchart TD
+    C["Contrato e unidade"] --> S["Split antes de qualquer fit"]
+    S --> B["Baseline: média do treino"]
+    S --> P["Pipeline de pré-processamento + OLS"]
+    B --> V["Validação com mesmas divisões"]
+    P --> V
+    V --> F["Configuração congelada"]
+    F --> T["Avaliação final no teste"]
+    T --> R["Resíduos, limites e relatório"]
+```
+
+Para regressão, um baseline simples prevê a média do target de treino para todos os casos. O modelo precisa demonstrar ganho fora da amostra em uma métrica coerente com o custo do erro.
+
+Use pelo menos:
+
+- MAE para magnitude absoluta típica;
+- RMSE quando erros grandes merecem peso maior;
+- $R^2$ como ganho relativo à previsão pela média no mesmo conjunto.
+
+As definições e escolhas de métricas serão aprofundadas na Aula 13. Nesta aula, o essencial é comparar no **mesmo split**, reportar unidade e nunca escolher configuração pelo teste.
+
+## 11. Resíduos como instrumento de diagnóstico
+
+Um escalar não conta toda a história. Plote resíduos contra previsões, features importantes e tempo.
+
+| Padrão | Possível explicação | Próxima verificação |
+|---|---|---|
+| curva em U | relação não linear | transformação ou modelo não linear |
+| funil | variância muda com o nível previsto | escala do target, modelo de variância |
+| sequência temporal | autocorrelação ou drift | split temporal e resíduos por tempo |
+| poucos resíduos enormes | outliers, erro de dados ou cauda pesada | proveniência e método robusto |
+| grupos deslocados | variável omitida ou efeito por segmento | análise de erro estratificada |
+| centro fora de zero no teste | viés sob nova distribuição | calibração, drift ou intercepto |
+
+Resíduo não é o mesmo que erro irredutível. Ele mistura ruído, inadequação do modelo, erro de medição e informação omitida.
+
+### Heterocedasticidade
+
+Quando a dispersão de $e_i$ muda com $x$ ou $\widehat y$, temos heterocedasticidade. OLS ainda pode produzir previsões úteis, mas inferência clássica sobre erros-padrão exige cuidados. Para previsão, avalie erros por faixa e considere transformação do alvo ou modelos adequados.
+
+### Outliers e alavancagem
+
+Um ponto com target extremo gera resíduo grande. Um ponto com features distantes do centro possui alta alavancagem e pode puxar a reta, mesmo com resíduo final moderado. Remover automaticamente é inadequado: investigue origem, validade e população-alvo.
+
+## 12. Interpolação e extrapolação
+
+Se o treino contém temperaturas entre 15 °C e 32 °C, prever a 25 °C é interpolar; prever a 50 °C é extrapolar. A reta continua numericamente, mas os dados não validaram que a relação permanece linear naquela região.
+
+Registre os intervalos observados no treino e sinalize previsões fora de suporte. Um $R^2$ alto no teste histórico não autoriza extrapolação arbitrária.
+
+Em sistemas de IA, extrapolação pode aparecer como:
+
+- carga muito acima da operação usual;
+- novo perfil de cliente;
+- sensor em faixa inédita;
+- política ou preço fora do período de treinamento.
+
+## 13. Predição não é causalidade
+
+Um coeficiente descreve associação condicional ao conjunto de features e ao modelo. Não significa que intervir em $x_j$ causará mudança de $\beta_j$ em $y$.
+
+Confundimento, causalidade reversa, seleção e variáveis omitidas podem produzir coeficientes preditivos sem interpretação causal. Dizer “ocupação está associada a maior consumo, mantendo as demais features do modelo constantes” é diferente de “aumentar ocupação causará exatamente $\beta$ kWh”.
+
+Para afirmação causal, são necessários desenho e hipóteses adicionais. O foco aqui é previsão fora da amostra.
+
+## 14. Pipeline reproduzível
+
+Para features numéricas em escalas diferentes:
+
+```python
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+model = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("scaler", StandardScaler()),
+    ("regressor", LinearRegression()),
+])
+
+model.fit(X_train, y_train)
+prediction = model.predict(X_test)
+```
+
+OLS não precisa de escala para encontrar previsões equivalentes em aritmética exata quando as colunas apenas mudam de unidade. Ainda assim, escala pode melhorar condicionamento, otimização iterativa e comparação dos coeficientes padronizados. Ela também será essencial ao aplicar penalização na próxima aula.
+
+Se houver categorias, reutilize `ColumnTransformer` da Aula 03. Salve o pipeline completo, não apenas os coeficientes.
+
+## 15. Conexões com IA e sistemas reais
+
+A regressão linear aparece como:
+
+- baseline para consumo, demanda, custo, latência e duração;
+- camada final de modelos que aprendem representações;
+- aproximação local para interpretar comportamento de modelos complexos;
+- modelo auxiliar em controle e detecção de tendência;
+- teste de sanidade para pipelines tabulares;
+- componente de modelos probabilísticos Gaussianos.
+
+Uma implementação simples facilita auditoria: features, unidades, coeficientes, intervalo de treino, versão e resíduos podem ser registrados. Simplicidade não elimina riscos, mas torna muitos deles observáveis.
+
+## 16. Armadilhas comuns
+
+1. **Calcular \((X^TX)^{-1}\) diretamente.** Use `lstsq`, QR ou SVD.
+2. **Esquecer o intercepto.** Isso força a reta pela origem e muda os resíduos.
+3. **Passar vetor 1D como $X$.** Mantenha observações nas linhas e features nas colunas.
+4. **Interpretar coeficiente sem unidade.** Diga “por unidade de quê”.
+5. **Comparar coeficientes em escalas diferentes.** Magnitude bruta depende da unidade.
+6. **Confundir ajuste no treino com generalização.** Avalie fora da amostra.
+7. **Reportar apenas $R^2$.** Inclua magnitude do erro na unidade do target.
+8. **Ignorar baseline.** Um modelo complexo pode perder para a média de treino.
+9. **Remover outlier porque piora a métrica.** Investigue com regra definida, não por conveniência.
+10. **Concluir causalidade pelo sinal do coeficiente.** O modelo é associativo sem desenho causal.
+11. **Extrapolar sem alerta.** Registre suporte observado e mudança de distribuição.
+12. **Omitir multicolinearidade.** Previsões podem parecer estáveis enquanto coeficientes não são.
+13. **Olhar resíduos do teste para redesenhar repetidamente o modelo.** Isso desgasta o teste.
+14. **Pré-processar antes do split.** Todo estado ajustável continua dentro do pipeline.
+
+## 17. Checklist prático
+
+### Formulação
+
+- [ ] target contínuo, unidade, população e instante de predição estão definidos;
+- [ ] baseline e custo dos erros foram registrados;
+- [ ] features são disponíveis em $t_0$ e não contêm leakage;
+- [ ] split representa o cenário de uso.
+
+### Matemática e implementação
+
+- [ ] shapes de $X$, $y$, $\beta$ e $\widehat y$ estão corretos;
+- [ ] intercepto foi incluído ou deliberadamente removido;
+- [ ] solução numérica evita inversa explícita;
+- [ ] posto, valores singulares ou condicionamento foram inspecionados;
+- [ ] pré-processamento e modelo formam um único pipeline;
+- [ ] baseline e modelo usam as mesmas partições.
+
+### Diagnóstico e comunicação
+
+- [ ] MAE/RMSE têm unidade e interpretação;
+- [ ] resíduos foram avaliados por previsão, feature, grupo e tempo quando aplicável;
+- [ ] outliers e pontos de alavancagem foram investigados, não apagados silenciosamente;
+- [ ] intervalo das features no treino foi registrado para detectar extrapolação;
+- [ ] coeficientes foram descritos como associações, não causas;
+- [ ] limitações e hipóteses foram documentadas.
+
+## 18. Laboratório reproduzível
+
+O [notebook da aula](../notebooks/04-regressao-linear-minimos-quadrados-laboratorio.ipynb) usa dados sintéticos de consumo de energia e seed fixa. Ele:
+
+- registra o protocolo antes da geração;
+- cria desenvolvimento e teste antes de qualquer `fit`;
+- implementa baseline pela média do treino;
+- resolve OLS com `np.linalg.lstsq`;
+- confirma ortogonalidade dos resíduos e posto da matriz;
+- reproduz a solução com `LinearRegression`;
+- implementa gradiente descendente em features padronizadas;
+- compara coeficientes e previsões entre as três abordagens;
+- mede MAE, RMSE e $R^2$ no teste reservado;
+- mostra resíduos, heterocedasticidade, outlier e extrapolação;
+- constrói um caso multicolinear e inspeciona número de condição;
+- executa asserts sobre shapes, split, convergência e equivalência numérica.
+
+Os dados sintéticos demonstram mecanismos; não medem um prédio ou produto real.
+
+## 19. Exercícios
+
+### 1. Shape
+
+Um dataset possui 200 observações e 4 features. Qual é o shape de $X$ após incluir uma coluna de intercepto? E o de $\beta$?
+
+### 2. Previsão
+
+Para \(\widehat y=10+2x_1-0{,}5x_2\), calcule a previsão em \(x_1=3\), \(x_2=8\).
 
 ### 3. Resíduos
 
-Resíduo é $e_i=y_i-\hat y_i$. Padrões nos resíduos podem revelar não linearidade, heterocedasticidade, dependência temporal ou outliers.
+Os valores observados são \([2,5,7]\) e as previsões \([3,4,8]\). Calcule os resíduos e a SSE.
 
-### 4. Coeficiente não é automaticamente causa
+### 4. Gradiente
 
-Um coeficiente descreve associação condicional sob o modelo e os dados observados. Causalidade exige desenho e hipóteses adicionais.
+O que significa \(X^Te=0\) na solução OLS? Essa condição vale necessariamente no teste?
 
-## Aprofundamento — da loss às equações normais
+### 5. Dependência linear
 
-Com intercepto incorporado em uma coluna de uns, a loss é
+Por que incluir metros, centímetros da mesma medida e intercepto pode tornar coeficientes não identificáveis?
 
-$$
-J(\beta)=\|X\beta-y\|_2^2=(X\beta-y)^T(X\beta-y).
-$$
+### 6. Diagnóstico
 
-Derivando em relação a $\beta$:
+Um gráfico de resíduos contra previsões forma um funil. O que isso sugere?
 
-$$
-\nabla_\beta J=2X^T(X\beta-y).
-$$
+### 7. Extrapolação
 
-No mínimo, $X^TX\hat\beta=X^Ty$. Se $X^TX$ for inversível,
+O modelo foi treinado para cargas entre 10% e 75%. Como deve ser tratada uma previsão em 98%?
 
-$$
-\hat\beta=(X^TX)^{-1}X^Ty.
-$$
+### 8. Causalidade
 
-Na prática, não calcule a inversa explicitamente: decomposições QR/SVD ou `lstsq` são mais estáveis. A condição $X^T(y-X\hat\beta)=0$ mostra a geometria: o vetor de resíduos é ortogonal ao espaço gerado pelas colunas de $X$.
+O coeficiente de treinamento recebido por funcionários é positivo. Por que isso não prova que oferecer treinamento causará o aumento previsto de produtividade?
 
-Coeficientes exigem contexto. Escala, codificação, multicolinearidade e interações mudam sua interpretação. Um ajuste preditivo não identifica, por si só, efeito causal.
+## 20. Respostas comentadas
 
-## 3. Equação para guardar
+### 1.
 
-$$
-\hat{\beta}=\arg\min_\beta \|X\beta-y\|_2^2
-$$
+Com intercepto, $X\in\mathbb{R}^{200\times5}$ e $\beta\in\mathbb{R}^{5}$ — ou $5\times1$ na notação de vetor-coluna.
 
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
+### 2.
 
-## 4. Exemplo mental
+\[
+\widehat y=10+2(3)-0{,}5(8)=12.
+\]
 
-Prever consumo de energia usando temperatura e ocupação. O coeficiente de temperatura expressa a variação prevista no target por unidade da feature, mantendo as demais do modelo constantes.
+### 3.
 
-## Exemplo numérico resolvido
+Como $e=y-\widehat y$, temos $[-1,1,-1]$. A SSE é $1+1+1=3$.
 
-Para os pontos $(0,1)$, $(1,3)$ e $(2,5)$, a reta $\hat y=1+2x$ produz previsões $[1,3,5]$ e SSE zero. Agora altere o último target para 8. A solução OLS passa a $\hat y=0{,}5+3{,}5x$, com previsões $[0{,}5,4,7{,}5]$ e resíduos $[0{,}5,-1,0{,}5]$. Um único ponto mudou substancialmente a inclinação: a loss quadrática dá peso crescente a erros grandes.
+### 4.
 
-## 5. Laboratório em Python / scikit-learn
+Os resíduos de treino são ortogonais às colunas de $X$: nenhuma direção linear já presente reduz a SSE por uma pequena mudança nos coeficientes. É propriedade da solução de treino e não precisa valer no teste.
 
-```python
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
+### 5.
 
-reg = LinearRegression()
-reg.fit(X_train, y_train)
+Centímetros são 100 vezes metros. Uma coluna é combinação exata da outra, então vários pares de coeficientes produzem a mesma previsão. A matriz perde posto completo.
 
-pred = reg.predict(X_test)
-print("RMSE:", mean_squared_error(y_test, pred) ** 0.5)
-print("R²:", r2_score(y_test, pred))
-print("coef:", reg.coef_)
-```
+### 6.
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+A variância do erro parece mudar com o nível previsto: possível heterocedasticidade. Avalie erros por faixa, origem dos dados e transformações adequadas; não conclua somente pela aparência.
 
-### Investigação adicional
+### 7.
 
-Implemente OLS com `np.linalg.lstsq`, derive o gradiente e ajuste a mesma reta por gradient descent. Compare coeficientes com `LinearRegression`. Depois injete outliers, plote resíduos versus previsão e discuta linearidade, heterocedasticidade e extrapolação.
+É extrapolação. Sinalize fora de suporte, verifique restrições físicas e evite afirmar validade com base apenas na métrica dentro do intervalo treinado.
 
-## Laboratório guiado completo
+### 8.
 
-Compare solução numérica, implementação vetorizada por gradient descent e scikit-learn.
+Funcionários que recebem treinamento podem diferir em experiência, função, motivação ou seleção do gestor. O coeficiente é associação condicional ao modelo; efeito causal exige desenho e hipóteses adicionais.
 
-```python
-import numpy as np
-from sklearn.linear_model import LinearRegression
+## 21. Resumo
 
-rng = np.random.default_rng(42)
-x = np.linspace(-3, 3, 120)
-y = 1.5 + 2.2*x + rng.normal(0, 0.7, len(x))
-X = np.c_[np.ones(len(x)), x]
+- Regressão linear combina features por coeficientes e intercepto.
+- Linearidade refere-se aos parâmetros, não necessariamente à forma bruta da feature.
+- OLS minimiza a soma dos resíduos quadráticos.
+- O gradiente leva às equações normais $X^TX\widehat\beta=X^Ty$.
+- Resíduos de treino são ortogonais ao espaço das colunas de $X$.
+- `lstsq`, QR e SVD são preferíveis à inversa explícita.
+- Posto deficiente impede identificar coeficientes únicos.
+- Mau condicionamento torna coeficientes sensíveis a pequenas perturbações.
+- Gradiente descendente revela o papel da escala e da taxa de aprendizado.
+- Baseline e avaliação fora da amostra são indispensáveis.
+- Resíduos revelam não linearidade, heterocedasticidade, outliers e drift.
+- Predições fora do suporte observado são extrapolações frágeis.
+- Coeficiente preditivo não é efeito causal.
 
-beta_lstsq = np.linalg.lstsq(X, y, rcond=None)[0]
-beta = np.zeros(2)
-lr = 0.03
-for _ in range(3000):
-    residual = X @ beta - y
-    grad = (2/len(y)) * X.T @ residual
-    beta -= lr * grad
+## 22. Próxima aula
 
-sk = LinearRegression().fit(x[:, None], y)
-print("lstsq", beta_lstsq)
-print("gradient descent", beta)
-print("sklearn", np.r_[sk.intercept_, sk.coef_])
-print("ortogonalidade X^T e", X.T @ (y - X @ beta_lstsq))
-```
+Na [Aula 05 — Regularização: Ridge, Lasso e Elastic Net](05-regularizacao-ridge-lasso-elastic-net.md), você verá como adicionar penalidades para controlar a magnitude dos coeficientes, introduzir viés deliberado e aumentar estabilidade quando há muitas features ou multicolinearidade.
 
-**Entregue:** derivação do gradiente; gráfico da loss; residual plot; repetição com outliers e explicação da mudança nos coeficientes.
+## Referências técnicas
 
-### Protocolo investigativo obrigatório
-
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
-
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
-
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
-
-## 6. Conexão com o AI Systems Laboratory
-
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
-
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
-
-## 7. Armadilhas comuns
-
-- Interpretar R² alto como evidência de causalidade.
-- Ignorar extrapolação fora do domínio dos dados.
-- Avaliar apenas R² sem observar magnitude dos erros.
-- Ignorar resíduos e dependências.
-
-## 8. Exercícios
-
-1. Derive a loss MSE de uma regressão simples.
-2. Explique o significado de um coeficiente negativo.
-3. Por que a regressão linear pode funcionar mesmo com features transformadas?
-4. O que um padrão curvo nos resíduos sugere?
-
-## Exercícios de aprofundamento e rubrica
-
-### Nível A — reconstrução conceitual
-
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
-
-### Nível B — cálculo e implementação
-
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
-
-### Nível C — contraprova experimental
-
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
-
-### Nível D — transferência para sistema real
-
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
-
-### Rubrica de 0 a 4
-
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
-
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
-
-## 9. Critério de domínio
-
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
-
-## 10. Referências principais
-
-- ISLP, cap. 3 — Linear Regression.
-- Hastie et al., cap. 3 — Linear Methods for Regression.
-- Murphy — PML, linear regression.
-- scikit-learn — LinearRegression.
-
-## Leitura orientada e fontes verificadas
-
-- James et al. — [ISLP](https://www.statlearning.com/), cap. 3.
-- Hastie, Tibshirani e Friedman — [ESL](https://hastie.su.domains/ElemStatLearn/), cap. 3.
-- Murphy — [PML: An Introduction](https://probml.github.io/pml-book/book1.html), modelos lineares.
-- scikit-learn — [Linear models](https://scikit-learn.org/stable/modules/linear_model.html).
-
-## Próxima aula
-
-**Regularização: Ridge, Lasso e Elastic Net**
+- SCIKIT-LEARN. [Ordinary Least Squares](https://scikit-learn.org/stable/modules/linear_model.html#ordinary-least-squares). Documentação oficial sobre OLS, custo computacional e multicolinearidade.
+- SCIKIT-LEARN. [`LinearRegression`](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LinearRegression.html). Contrato oficial do estimador.
+- NUMPY. [`numpy.linalg.lstsq`](https://numpy.org/doc/stable/reference/generated/numpy.linalg.lstsq.html). Solução numérica de mínimos quadrados, posto e valores singulares.
+- JAMES, Gareth et al. [*An Introduction to Statistical Learning*](https://www.statlearning.com/). Capítulo sobre regressão linear e avaliação.
+- HASTIE, Trevor; TIBSHIRANI, Robert; FRIEDMAN, Jerome. [*The Elements of Statistical Learning*](https://hastie.su.domains/ElemStatLearn/). Modelos lineares e fundamentos estatísticos.
+- MURPHY, Kevin P. [*Probabilistic Machine Learning: An Introduction*](https://probml.github.io/pml-book/book1.html). Formulação probabilística dos modelos lineares.
