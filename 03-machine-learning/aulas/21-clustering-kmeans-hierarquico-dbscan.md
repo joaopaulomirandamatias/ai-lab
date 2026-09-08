@@ -1,211 +1,332 @@
 # Aula 21 — Clustering: K-Means, hierárquico e DBSCAN
 
+<!-- mirandastech-aula-v2 -->
+
 **Trilha:** Especialista em IA  
 **Módulo:** 03 · Machine Learning clássico (M4)  
-**Pré-requisito:** Aula 20 deste módulo  
-**Objetivo central:** Aprender agrupamento não supervisionado e reconhecer quando clusters são artefatos da métrica e do pré-processamento.
+**Pré-requisito:** [Aula 20 — Interpretabilidade de modelos](./20-interpretabilidade-modelos.md)  
+**Próxima aula:** [Aula 22 — Redução de dimensionalidade em ML](./22-reducao-dimensionalidade-ml.md)
 
-> Nesta fase, o objetivo deixa de ser apenas conhecer algoritmos. Você precisa saber construir um experimento em que o desempenho medido seja uma estimativa honesta de generalização.
+[![Abrir laboratório no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/03-machine-learning/notebooks/21-clustering-kmeans-hierarquico-dbscan-laboratorio.ipynb)
 
-## Objetivos de aprendizagem
+> Clustering não descobre automaticamente “os grupos verdadeiros”. Ele propõe uma partição coerente com uma representação, uma métrica e uma hipótese geométrica. O trabalho científico começa quando verificamos se essa partição é estável, útil e defensável no domínio.
 
-- Entender objetivo do K-Means.
-- Conhecer clustering hierárquico.
-- Entender DBSCAN e densidade.
-- Avaliar silhouette com cautela.
-- Reconhecer sensibilidade a scaling e geometria.
+## Problema motivador
 
-## 1. Por que este tema importa para IA?
+Uma equipe quer segmentar usuários para personalizar atendimento. Não existe uma coluna `perfil`; há frequência de uso, gasto, tempo desde a última atividade e canal preferido. K-Means retorna quatro grupos com nomes tentadores: “fiéis”, “em risco”, “premium” e “ocasionais”. Mas outra unidade de medida, uma inicialização diferente ou a inclusão de uma feature redundante muda os grupos.
 
-Machine Learning clássico continua sendo uma ferramenta essencial em sistemas reais. Dados tabulares, risco, fraude, previsão operacional, ranking, manutenção preditiva e inúmeros problemas corporativos frequentemente são resolvidos com modelos lineares, árvores e ensembles de forma mais simples, rápida e auditável do que com redes neurais.
+Isso não é um detalhe cosmético. Uma segmentação pode definir preço, campanha, prioridade de fiscalização ou investigação científica. Antes de dar significado aos rótulos, precisamos responder:
 
-O foco desta aula é **aprender agrupamento não supervisionado e reconhecer quando clusters são artefatos da métrica e do pré-processamento.**
+- quais objetos podem ser comparados e em qual instante;
+- que representação e distância expressam similaridade relevante;
+- que forma, tamanho e densidade o algoritmo pressupõe;
+- se o agrupamento resiste a amostragem, ruído e escolhas plausíveis;
+- se os grupos geram uma decisão útil sem produzir dano indevido.
 
-## 2. Ideias fundamentais
+## Objetivos
 
-### 1. K-Means
+Ao concluir a aula, você será capaz de:
 
-Minimiza a soma das distâncias quadráticas aos centroides. Favorece clusters aproximadamente esféricos e exige escolher k.
+- formalizar clustering como construção de uma partição sem target;
+- implementar e interpretar as etapas de Lloyd do K-Means;
+- comparar os linkages de clustering hierárquico e ler um dendrograma;
+- definir pontos centrais, de borda e ruído no DBSCAN;
+- explicar como escala, métrica, outliers e dimensionalidade alteram a geometria;
+- calcular inertia, silhouette e Adjusted Rand Index (ARI) sem tratá-los como verdade;
+- medir estabilidade por perturbação ou reamostragem;
+- distinguir método indutivo de método transdutivo;
+- criar um protocolo auditável antes de batizar ou operacionalizar clusters.
 
-### 2. Hierárquico
+## Pré-requisitos e vocabulário
 
-Constrói uma árvore de agrupamentos por fusão ou divisão. Dendrograma permite examinar diferentes cortes.
+Retome distância e escala na [Aula 07](./07-knn-distancias-dimensionalidade.md), pipelines e leakage na [Aula 03](./03-preprocessamento-pipelines-leakage.md), validação na [Aula 17](./17-cross-validation.md) e cautelas de interpretação na [Aula 20](./20-interpretabilidade-modelos.md).
 
-### 3. DBSCAN
+| Termo | Significado nesta aula |
+|---|---|
+| **partição** | divisão das observações em subconjuntos disjuntos |
+| **cluster** | subconjunto produzido por um critério operacional, não uma classe natural por definição |
+| **centroide** | média vetorial das observações atribuídas a um cluster |
+| **métrica** | regra usada para quantificar distância ou dissimilaridade |
+| **linkage** | regra de distância entre dois grupos no método hierárquico |
+| **densidade** | concentração de observações em uma vizinhança definida |
+| **ruído** | ponto não atribuído a cluster pelo DBSCAN, indicado por rótulo `-1` |
+| **estabilidade** | concordância da partição sob mudanças justificáveis em dados ou procedimento |
+| **indutivo** | possui regra para atribuir novas observações depois do ajuste |
+| **transdutivo** | produz rótulos principalmente para o conjunto ajustado, sem `predict` natural |
 
-Define clusters por regiões densas e pode marcar ruído, sem exigir k, mas depende de eps/min_samples.
+## 1. O objeto científico vem antes do algoritmo
 
-### 4. Sem ground truth
+Em aprendizagem supervisionada, o target orienta o que deve ser previsto. Em clustering, essa âncora não existe. O algoritmo vê somente uma matriz
 
-Cluster não é automaticamente uma categoria real. Validação deve combinar métricas internas, estabilidade e utilidade de domínio.
+\[
+X\in\mathbb{R}^{n\times p},
+\]
 
-## Aprofundamento — clustering é uma hipótese exploratória
+com \(n\) observações e \(p\) features, mais as decisões de representação. Se idade está em anos e renda em centavos, distância euclidiana será dominada pela renda. Se duas colunas repetem a mesma informação, essa dimensão recebe peso duplicado. Se misturamos eventos da mesma pessoa em períodos diferentes, talvez agrupemos fases da pessoa em vez de pessoas.
 
-K-Means alterna duas etapas: atribuir cada ponto ao centroide mais próximo e atualizar cada centroide pela média. A objective não convexa pode convergir a mínimos locais; `n_init` e seed importam. Distância quadrática e centróides favorecem grupos aproximadamente convexos/esféricos e sensibilidade a escala/outliers.
+O protocolo mínimo declara unidade de análise, janela temporal, população, features disponíveis, tratamento de ausentes, escala, métrica e uso pretendido. Não use outcome futuro para “melhorar” a segmentação: mesmo sem target explícito, isso pode vazar informação para uma decisão posterior.
 
-Clustering hierárquico depende da distância e do linkage (single, complete, average, Ward). DBSCAN define ponto central por pelo menos `min_samples` na vizinhança de raio `eps`, expande conectividade por densidade e marca ruído. Densidades variáveis desafiam um único `eps`.
+```mermaid
+flowchart LR
+    P[Problema e unidade] --> R[Representação]
+    R --> M[Métrica]
+    M --> H[Hipótese geométrica]
+    H --> A[Algoritmo e parâmetros]
+    A --> V[Validação interna e estabilidade]
+    V --> D[Validação de domínio]
+    D -- insuficiente --> R
+    D -- sustentada --> U[Uso monitorado]
+```
 
-Silhouette mede coesão/separação na geometria escolhida, não “verdade”. Avalie estabilidade por reamostragem, concordância entre seeds, separação em dados originais e utilidade de domínio. Não batize clusters como personas sem validação externa.
+## 2. K-Means: uma hipótese de centroides
 
-## 3. Equação para guardar
+Para \(K\) clusters \(C_1,\ldots,C_K\), K-Means minimiza a soma de quadrados dentro dos grupos, também chamada *inertia*:
 
-$$
-\min_{C_1,\dots,C_k}\sum_{j=1}^{k}\sum_{x_i\in C_j}\|x_i-\mu_j\|^2
-$$
+\[
+J=\sum_{k=1}^{K}\sum_{x_i\in C_k}\lVert x_i-\mu_k\rVert_2^2,
+\qquad
+\mu_k=\frac{1}{|C_k|}\sum_{x_i\in C_k}x_i.
+\]
 
-Não memorize a fórmula isoladamente. Pergunte sempre: **o que entra, o que é aprendido, qual hipótese está sendo feita e como isso será avaliado fora da amostra?**
+Aqui, \(x_i\) é a observação \(i\), \(\mu_k\) é o centroide do grupo \(k\), \(|C_k|\) é seu número de pontos e \(\lVert\cdot\rVert_2\) é a norma euclidiana. O quadrado pune distâncias grandes e torna a média o centro ótimo para atribuições fixas.
 
-## 4. Exemplo mental
+### 2.1 Algoritmo de Lloyd
 
-Segmentar clientes por comportamento. Os clusters devem ser avaliados por estabilidade e utilidade, não apenas por um gráfico 2D atraente.
+1. Inicialize \(K\) centroides.
+2. Atribua cada ponto ao centroide mais próximo.
+3. Recalcule cada centroide como a média dos pontos atribuídos.
+4. Repita até os centroides estabilizarem ou atingir o limite.
 
-## Exemplo numérico resolvido
+Cada passo não aumenta \(J\), mas a função não é convexa em atribuições e centroides simultaneamente. A solução pode ser um mínimo local. `k-means++` espalha os centros iniciais e `n_init` repete o ajuste; seed fixa garante reexecução, não validade.
 
-Pontos unidimensionais $[0,1,9,10]$ e $k=2$. Com clusters $C_1=[0,1]$ e $C_2=[9,10]$, centróides são $0{,}5$ e $9{,}5$. A SSE é
+### Exemplo resolvido
 
-$$
+Considere \(x=[0,1,9,10]\), \(K=2\) e centros iniciais \(\mu_1=0\), \(\mu_2=9\). A atribuição gera \(C_1=\{0,1\}\) e \(C_2=\{9,10\}\). As médias tornam-se \(0{,}5\) e \(9{,}5\). A inertia é
+
+\[
 (0-0{,}5)^2+(1-0{,}5)^2+(9-9{,}5)^2+(10-9{,}5)^2=1.
-$$
+\]
 
-Um agrupamento $[0,1,9]$ e $[10]$ tem centroide $10/3$ no primeiro grupo e SSE muito maior. O exemplo também mostra por que outliers deslocam médias.
+Na iteração seguinte, as atribuições não mudam. Os nomes `0` e `1` são arbitrários: trocar seus números não altera a partição.
 
-## 5. Laboratório em Python / scikit-learn
+### 2.2 O que a função objetivo favorece
 
-```python
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
+K-Means cria células de Voronoi e funciona melhor para grupos compactos, convexos, aproximadamente isotrópicos e de variâncias comparáveis. Ele exige \(K\), é sensível a outliers e pode dividir uma forma curva ou juntar regiões de densidades distintas. Menor inertia não escolhe \(K\): ela nunca aumenta quando adicionamos centroides e vale zero quando cada ponto vira seu próprio grupo.
 
-clusterer = make_pipeline(
-    StandardScaler(),
-    KMeans(n_clusters=4, n_init="auto", random_state=42)
-)
+## 3. Clustering hierárquico aglomerativo
 
-labels = clusterer.fit_predict(X)
+O método aglomerativo começa com um cluster por observação e funde, passo a passo, os dois grupos mais próximos. O dendrograma registra a sequência e a distância de cada fusão. Cortá-lo em certa altura produz uma partição, mas um ramo visualmente longo não substitui validação.
+
+| Linkage | Distância entre grupos | Comportamento típico |
+|---|---|---|
+| **single** | menor distância entre pares | alcança formas não globulares, mas sofre *chaining* e ruído |
+| **complete** | maior distância entre pares | favorece grupos compactos e limita diâmetro |
+| **average** | média das distâncias entre pares | compromisso; aceita várias métricas |
+| **Ward** | aumento de variância após fusão | grupos regulares; requer geometria euclidiana |
+
+Ward escolhe a fusão com menor aumento da soma de quadrados:
+
+\[
+\Delta(A,B)=\frac{|A||B|}{|A|+|B|}\lVert\mu_A-\mu_B\rVert_2^2.
+\]
+
+O dendrograma é especialmente útil para examinar granularidades. Porém, o custo de armazenar distâncias pode crescer quadraticamente; para grandes \(n\), conectividade esparsa, amostragem ou outro método podem ser necessários. `AgglomerativeClustering` é transdutivo: não oferece uma regra canônica para novos pontos.
+
+## 4. DBSCAN: conectividade por densidade
+
+DBSCAN usa raio \(\varepsilon\) e `min_samples`. Para um ponto \(x_i\), defina a vizinhança
+
+\[
+N_\varepsilon(x_i)=\{x_j:d(x_i,x_j)\leq\varepsilon\}.
+\]
+
+- **ponto central:** \(|N_\varepsilon(x_i)|\geq m\), incluindo o próprio ponto, onde \(m\) é `min_samples`;
+- **ponto de borda:** não é central, mas pertence à vizinhança de um ponto central;
+- **ruído:** não é alcançável por densidade a partir de nenhum núcleo.
+
+Pontos centrais conectados expandem o mesmo cluster. Assim, DBSCAN encontra formas curvas e marca ruído sem exigir \(K\). Ele não é “sem parâmetros”: `eps`, `min_samples`, métrica e escala definem o que significa região densa.
+
+Um único `eps` falha quando densidades variam muito: um valor pequeno fragmenta a região rarefeita; um valor grande une regiões densas ou absorve ruído. Em alta dimensão, vizinhanças também perdem contraste. O rótulo `-1` significa incompatibilidade com o critério ajustado, não fraude, anomalia ou erro de medição por si só.
+
+```mermaid
+flowchart TD
+    X[Nova observação no conjunto ajustado] --> N[Conte vizinhos no raio eps]
+    N --> C{Quantidade >= min_samples?}
+    C -- sim --> K[Ponto central: expande componente]
+    C -- não --> B{Está no raio de algum central?}
+    B -- sim --> E[Ponto de borda]
+    B -- não --> O[Ruído: rótulo -1]
 ```
 
-O código é apenas o início. No laboratório, registre **split, seed, preprocessing, hiperparâmetros, métrica e versão do dataset**. A meta é que outra pessoa consiga reproduzir o experimento.
+DBSCAN também é transdutivo em sua forma usual. Atribuir um novo ponto exige regra adicional, readequação ou modelo indutivo separado; não improvise `predict` como se o método tivesse aprendido centroides.
 
-### Investigação adicional
+## 5. Avaliação sem se enganar
 
-Use blobs esféricos, luas e dados com ruído. Compare K-Means, aglomerativo e DBSCAN após scaling. Varie seeds/parâmetros, calcule silhouette e estabilidade por Adjusted Rand Index entre reamostragens. Descreva onde cada hipótese geométrica falha.
+### 5.1 Silhouette
 
-## Laboratório guiado completo
+Para ponto \(i\), seja \(a(i)\) a distância média aos membros de seu cluster e \(b(i)\) a menor distância média a outro cluster. Então
 
-Compare hipóteses geométricas em blobs e luas e avalie estabilidade.
+\[
+s(i)=\frac{b(i)-a(i)}{\max\{a(i),b(i)\}}\in[-1,1].
+\]
 
-```python
-from sklearn.cluster import DBSCAN, KMeans
-from sklearn.datasets import make_moons
-from sklearn.metrics import silhouette_score
-from sklearn.preprocessing import StandardScaler
+Valores altos indicam coesão e separação segundo a métrica escolhida. Próximo de zero sugere fronteira; negativo sugere maior proximidade de outro grupo. A média é uma métrica interna, não prova semântica. Ela tende a favorecer clusters convexos e pode premiar a mesma geometria pressuposta pelo algoritmo. Para DBSCAN, declare se pontos `-1` foram excluídos; excluir muito ruído pode inflar a métrica.
 
-X, truth = make_moons(n_samples=800, noise=0.08, random_state=42)
-X = StandardScaler().fit_transform(X)
-models = {
-    "kmeans": KMeans(n_clusters=2, n_init=20, random_state=42),
-    "dbscan": DBSCAN(eps=0.25, min_samples=8),
-}
-for name, model in models.items():
-    labels = model.fit_predict(X)
-    keep = labels != -1
-    n_clusters = len(set(labels[keep]))
-    sil = silhouette_score(X[keep], labels[keep]) if n_clusters > 1 else float("nan")
-    print(name, "clusters", n_clusters, "ruído", (~keep).sum(), "silhouette", sil)
+### 5.2 ARI e informação externa
+
+Quando existe uma referência externa legítima — como classes conhecidas em dados sintéticos — podemos comparar duas partições com o Adjusted Rand Index:
+
+\[
+ARI=\frac{RI-\mathbb{E}[RI]}{\max(RI)-\mathbb{E}[RI]}.
+\]
+
+O ajuste desconta concordância esperada ao acaso; 1 indica partições idênticas, independentemente dos números dos rótulos, e valores próximos de 0 indicam concordância semelhante ao acaso. No laboratório, o `truth` sintético serve somente para revelar falhas conhecidas. Em projeto real, não crie uma “verdade” depois de observar os clusters.
+
+### 5.3 Estabilidade
+
+Uma partição útil deveria resistir a pequenas mudanças plausíveis. Podemos perturbar medições, variar seeds, refazer o pré-processamento ou reamostrar observações e comparar atribuições em um conjunto comum com ARI. Estabilidade alta também não basta: um algoritmo pode produzir sempre o mesmo agrupamento irrelevante.
+
+```text
+validade da segmentação = evidência interna
+                         + estabilidade
+                         + validação externa/de domínio
+                         + utilidade e impacto monitorados
 ```
 
-**Entregue:** vários seeds e `eps`; silhouette e estabilidade por ARI; dendrograma aglomerativo; interpretação de domínio sem batizar automaticamente os clusters.
+## 6. Comparação operacional
 
-### Protocolo investigativo obrigatório
+| Critério | K-Means | Hierárquico | DBSCAN |
+|---|---|---|---|
+| parâmetro principal | número \(K\) | linkage + corte/\(K\) | `eps` + `min_samples` |
+| geometria favorecida | compacta/convexa | depende do linkage | regiões densas conectadas |
+| marca ruído | não | não, na forma básica | sim |
+| novas observações | `predict` por centroide | sem `predict` natural | sem `predict` natural |
+| sensibilidade à escala | alta | alta | alta |
+| inicialização aleatória | sim | geralmente não | não |
+| grande limitação | exige \(K\), outliers | custo e escolha do corte | densidades variáveis |
 
-O laboratório não termina quando o código executa. Para transformar execução em aprendizagem e evidência:
+## 7. Laboratório reproduzível
 
-1. escreva uma hipótese antes de rodar o experimento;
-2. mantenha um baseline e altere uma decisão por vez;
-3. use o mesmo split ou os mesmos folds nas comparações;
-4. reporte a distribuição das métricas, não apenas o melhor número;
-5. inspecione pelo menos cinco erros ou casos extremos;
-6. registre seed, versões, hiperparâmetros e tempo de execução;
-7. conclua com **o que os resultados sustentam** e **o que não sustentam**.
+O [notebook da Aula 21](../notebooks/21-clustering-kmeans-hierarquico-dbscan-laboratorio.ipynb) usa dados sintéticos para conhecer a estrutura geradora sem confundi-la com informação disponível ao algoritmo. Ele:
 
-Salve um relatório curto em Markdown, a configuração em JSON e o código executável. Uma execução sem interpretação não satisfaz o critério de domínio.
+1. implementa Lloyd com NumPy e verifica que a inertia não aumenta;
+2. demonstra que mudar unidades altera K-Means sem padronização;
+3. compara K-Means, Ward e DBSCAN em duas luas;
+4. mede silhouette, ARI, número de clusters e fração de ruído;
+5. gera um dendrograma e compara quatro linkages;
+6. mede estabilidade sob pequenas perturbações;
+7. mostra a falha de um único `eps` em densidades distintas;
+8. executa asserts metodológicos e numéricos.
 
-## 6. Conexão com o AI Systems Laboratory
+Dependências mínimas: Python 3.10, NumPy 1.26, Matplotlib 3.8, SciPy 1.11 e scikit-learn 1.4. Todos os dados são gerados com seed fixa; o notebook não baixa arquivos nem usa credenciais.
 
-Para o projeto longitudinal, aplique este conceito a um dataset real e salve:
-- configuração do experimento;
-- baseline;
-- métricas de validação;
-- análise de erros;
-- limitações;
-- evidência de que o teste não contaminou o treinamento.
+## 8. Armadilhas e limites
 
-Ao longo do M4, esses artefatos serão acumulados até formar o **Gate II**.
+- Rodar clustering antes de definir unidade de análise e uso.
+- Padronizar automaticamente variáveis cuja diferença de peso é substantiva — escala também é decisão de domínio.
+- Misturar números contínuos, categorias codificadas como inteiros e distâncias euclidianas sem justificativa.
+- Escolher \(K\) apenas pelo “cotovelo”; inertia cai por construção.
+- Selecionar parâmetros e reportar a silhouette máxima como estimativa imparcial.
+- Excluir ruído do DBSCAN sem informar sua fração e perfil.
+- Tratar `-1` como anomalia confirmada.
+- Usar rótulos externos para ajustar tudo e ainda chamar o processo de não supervisionado.
+- Comparar labels diretamente; `0` e `1` podem apenas ter sido permutados. Use ARI ou alinhamento.
+- Usar um mapa 2D de t-SNE/UMAP como prova de separação. A próxima aula tratará desse limite.
+- Nomear grupos por estereótipo depois de olhar médias, sem teste e revisão de impacto.
+- Esperar `predict` de algoritmos transdutivos sem definir política para novos dados.
 
-## 7. Armadilhas comuns
+## 9. Checklist prático
 
-- Rodar K-Means sem scaling.
-- Escolher k apenas pelo elbow de forma mecânica.
-- Interpretar cluster como classe natural sem validação.
-- Usar t-SNE/UMAP 2D para provar separação original.
+- [ ] Declarei unidade, população, janela e uso da segmentação.
+- [ ] Auditei features disponíveis no instante pertinente.
+- [ ] Justifiquei transformações, pesos e métrica.
+- [ ] Comparei uma partição trivial e mais de uma hipótese geométrica.
+- [ ] Registrei seed, versões e hiperparâmetros.
+- [ ] Reportei inertia/silhouette com suas limitações.
+- [ ] Reportei número e tamanho dos clusters e fração de ruído.
+- [ ] Testei estabilidade sob mudanças plausíveis.
+- [ ] Usei informação externa somente com protocolo declarado.
+- [ ] Revisei significado e impacto com especialistas do domínio.
+- [ ] Defini tratamento de novas observações e monitoramento.
+- [ ] Evitei transformar cluster em identidade essencial de pessoa.
 
-## 8. Exercícios
+## 10. Exercícios com respostas comentadas
 
-1. Qual geometria K-Means favorece?
-2. Quando DBSCAN é interessante?
-3. Por que cluster não é necessariamente categoria real?
-4. Como verificar estabilidade de clustering?
+### 1. Centroide
 
-## Exercícios de aprofundamento e rubrica
+Qual é o centroide dos pontos \((0,2)\), \((2,4)\) e \((4,0)\)?
 
-### Nível A — reconstrução conceitual
+**Resposta:** \((2,2)\), a média por coordenada. Ele não precisa coincidir com uma observação.
 
-Feche o material e explique o problema, as hipóteses, cada símbolo das equações e a diferença entre treinamento, seleção e avaliação. Desenhe o fluxo de dados sem consultar o texto. Se uma definição depender de palavras vagas como “melhor” ou “parecido”, torne-a operacional.
+### 2. Inertia
 
-### Nível B — cálculo e implementação
+Por que não escolher \(K\) apenas minimizando inertia?
 
-Refaça o exemplo numérico com valores diferentes e confira manualmente o resultado do código. Implemente a operação matemática central com NumPy ou Python básico antes de usar a abstração do scikit-learn. Compare tolerâncias e explique qualquer diferença numérica.
+**Resposta:** porque a inertia nunca aumenta com mais centros e chega a zero com \(K=n\). Precisamos equilibrar granularidade, estabilidade e utilidade.
 
-### Nível C — contraprova experimental
+### 3. Escala
 
-Crie deliberadamente um cenário em que o método falha: ruído, outlier, escala incompatível, shift, grupos repetidos, classe rara ou leakage. Formule antes o comportamento esperado, execute a ablação e confronte hipótese e resultado.
+Altura está em metros e renda em centavos. O que ocorre na distância euclidiana?
 
-### Nível D — transferência para sistema real
+**Resposta:** diferenças de renda tendem a dominar. Padronizar é uma possibilidade, mas a ponderação final deve representar o conceito de similaridade do domínio.
 
-Aplique o conceito a um problema do AI Systems Laboratory. Declare unidade, instante de predição, dados disponíveis, baseline, métrica, custo dos erros e threat to validity. Produza um artefato que outra pessoa consiga auditar.
+### 4. Linkage
 
-### Rubrica de 0 a 4
+Qual linkage é mais vulnerável a uma cadeia de pontos ligando dois grupos?
 
-- **0 — reconhecimento:** identifica o nome, mas não explica o mecanismo;
-- **1 — reprodução:** executa exemplo pronto;
-- **2 — compreensão:** deriva/calcula e interpreta o resultado;
-- **3 — diagnóstico:** prevê falhas, escolhe protocolo e analisa erros;
-- **4 — transferência:** projeta, implementa e defende um experimento novo e reproduzível.
+**Resposta:** `single`, pois basta um par muito próximo para aproximar dois clusters. Isso ajuda em formas alongadas, mas facilita *chaining*.
 
-**Carga sugerida:** 45 min de leitura ativa, 45 min de derivação/cálculo, 90 min de laboratório, 30 min de análise de erros e 30 min de relatório. Avance somente ao atingir pelo menos nível 3.
+### 5. DBSCAN
 
-## 9. Critério de domínio
+Com `min_samples=5`, um ponto tem quatro vizinhos além dele dentro de `eps`. É central?
 
-Você domina esta aula quando consegue:
-1. explicar o conceito sem consultar a documentação;
-2. implementar um experimento mínimo;
-3. identificar pelo menos dois modos de leakage ou avaliação enganosa;
-4. justificar a métrica e o protocolo de validação.
+**Resposta:** sim na convenção do scikit-learn, pois o próprio ponto integra a vizinhança, totalizando cinco amostras.
 
-## 10. Referências principais
+### 6. Silhouette
 
-- Hastie et al. — Unsupervised Learning.
-- Ester et al. (1996) — DBSCAN.
-- Rousseeuw (1987) — Silhouettes.
-- scikit-learn — Clustering.
+Um modelo descarta 70% das observações como ruído e obtém silhouette 0,91 nos restantes. É suficiente?
 
-## Leitura orientada e fontes verificadas
+**Resposta:** não. O número pode descrever apenas a minoria retida. Reporte cobertura, perfil do ruído, estabilidade e utilidade para toda a população.
 
-- Ester et al. (1996) — [artigo original do DBSCAN](https://cdn.aaai.org/KDD/1996/KDD96-037.pdf).
-- James et al. — [ISLP](https://www.statlearning.com/), aprendizagem não supervisionada.
-- scikit-learn — [Clustering](https://scikit-learn.org/stable/modules/clustering.html).
-- Hastie, Tibshirani e Friedman — [ESL](https://hastie.su.domains/ElemStatLearn/), cap. 14.
+### 7. Labels
+
+As partições `[0,0,1,1]` e `[1,1,0,0]` discordam?
+
+**Resposta:** não; apenas os nomes foram trocados. ARI é 1. Comparação elemento a elemento daria uma conclusão errada.
+
+### 8. Estabilidade
+
+ARI entre perturbações é 0,98, mas especialistas dizem que os grupos não mudam nenhuma decisão. O clustering foi validado?
+
+**Resposta:** demonstrou estabilidade, não utilidade ou significado. Validade requer evidências complementares e objetivo operacional.
+
+### 9. Novos pontos
+
+Por que `AgglomerativeClustering` e DBSCAN não oferecem a mesma previsão natural de K-Means?
+
+**Resposta:** são essencialmente transdutivos: constroem relações entre os pontos ajustados. Uma regra indutiva posterior deve ser especificada e validada separadamente.
+
+## Resumo
+
+- Clustering depende de representação, métrica e hipótese geométrica.
+- K-Means minimiza soma de quadrados e favorece grupos compactos.
+- O dendrograma registra fusões; linkage determina o significado de proximidade entre grupos.
+- DBSCAN conecta regiões densas e marca ruído, mas um único `eps` sofre com densidades variáveis.
+- Silhouette mede coesão/separação na geometria escolhida; não mede verdade substantiva.
+- ARI compara partições sem depender do número dos rótulos.
+- Estabilidade é necessária, mas não suficiente para validade.
+- Nomes, decisões e impactos exigem validação externa e revisão de domínio.
+
+## Referências técnicas
+
+Fontes verificadas em **8 de setembro de 2026**:
+
+1. scikit-learn 1.9. [Clustering — User Guide](https://scikit-learn.org/stable/modules/clustering.html) — objetivos, hipóteses, escalabilidade e caráter indutivo/transdutivo.
+2. Ester, M.; Kriegel, H.-P.; Sander, J.; Xu, X. (1996). [A Density-Based Algorithm for Discovering Clusters in Large Spatial Databases with Noise](https://cdn.aaai.org/KDD/1996/KDD96-037.pdf) — artigo original do DBSCAN.
+3. Rousseeuw, P. J. (1987). [Silhouettes: a graphical aid to the interpretation and validation of cluster analysis](https://doi.org/10.1016/0377-0427(87)90125-7) — definição original da silhouette.
+4. Arthur, D.; Vassilvitskii, S. (2007). [k-means++: The Advantages of Careful Seeding](https://theory.stanford.edu/~sergei/papers/kMeansPP-soda.pdf) — inicialização de centroides.
+5. James, G. et al. [An Introduction to Statistical Learning with Applications in Python](https://www.statlearning.com/) — aprendizagem não supervisionada.
 
 ## Próxima aula
 
-**Redução de dimensionalidade em ML: PCA, t-SNE e UMAP com responsabilidade**
+Na [Aula 22](./22-reducao-dimensionalidade-ml.md), estudaremos PCA como transformação linear e t-SNE/UMAP como mapas exploratórios. A pergunta central será: o que uma projeção preserva — e o que ela distorce — antes de enxergar “ilhas” como clusters reais?
