@@ -1,46 +1,83 @@
+<!-- mirandastech-aula-v2 -->
+
 # Aula 01 — Do modelo linear ao neurônio artificial
 
 - **Trilha:** Especialista em IA
 - **Módulo:** M5 · Redes Neurais do Zero
-- **Pré-requisito:** álgebra linear, derivadas, regra da cadeia, gradient descent e ML clássico (M1–M4)
-- **Objetivo central:** construir um neurônio artificial como uma composição de operações, executar o forward e derivar $\partial L/\partial W$, $\partial L/\partial b$ e $\partial L/\partial x$ sem autograd.
+- **Pré-requisitos:** álgebra linear, derivadas, regra da cadeia, gradiente descendente e o Gate II de ML clássico
+- **Objetivo central:** construir um neurônio artificial como composição de operações, executar o *forward* e derivar $\partial L/\partial W$, $\partial L/\partial b$ e $\partial L/\partial X$ sem *autograd*
+
+[![Abrir no Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joaopaulomirandamatias/ai-lab/blob/main/04-deep-learning/m5-redes-neurais-do-zero/notebooks/01-neuronio-artificial-laboratorio.ipynb)
+
+## O problema que abre a trilha
+
+No [Gate II de Machine Learning](../../../03-machine-learning/aulas/24-gate-ii-experimento-ml-classico.md), treinamos modelos por APIs de alto nível. Isso é suficiente para muitos projetos, mas deixa uma caixa-preta entre a matriz de dados e a atualização dos parâmetros. Para entender redes profundas, precisamos abrir essa caixa.
+
+Imagine um sistema de triagem que recebe $d$ medidas de uma ocorrência e produz um *score*. Como cada entrada altera esse score? Como o erro chega aos pesos? Por que uma matriz transposta aparece no gradiente? E como distinguir uma derivada correta de código que apenas executa?
+
+Começaremos pela menor unidade útil: uma transformação afim, uma ativação e uma perda. Ela já contém os ingredientes que reaparecem em camadas densas, projeções de atenção e blocos de redes modernas.
+
+> **Fronteira curricular:** esta aula usa gradiente descendente para tornar o cálculo observável. A regra de aprendizagem do perceptron, seu critério de erro e seu teorema de convergência pertencem à Aula 02.
 
 ## Objetivos de aprendizagem
 
-Ao final, você deve conseguir:
+Ao final, você deverá conseguir:
 
-1. separar pré-ativação, ativação, previsão e loss;
-2. interpretar peso e viés sem recorrer a analogias biológicas imprecisas;
-3. calcular o forward de um neurônio escalar e em lote;
+1. separar entrada, parâmetro, pré-ativação, ativação, previsão e perda;
+2. interpretar peso e viés sem analogias biológicas imprecisas;
+3. executar o *forward* escalar e vetorizado;
 4. derivar os gradientes locais da transformação afim;
-5. aplicar a regra da cadeia até os parâmetros e a entrada;
-6. implementar e treinar um classificador de um neurônio em NumPy;
-7. conferir o gradiente analítico com diferenças finitas.
+5. aplicar a regra da cadeia até pesos, viés e entrada;
+6. rastrear shapes e identificar *broadcasting* acidental;
+7. implementar sigmoid e entropia cruzada binária de modo estável;
+8. conferir gradientes analíticos com diferenças finitas;
+9. explicar por que um neurônio separa OR, mas não XOR;
+10. demonstrar por que empilhar operações afins sem ativação não aumenta expressividade.
 
-## Intuição
+## Vocabulário essencial
 
-Um neurônio artificial é uma unidade de computação parametrizada. Ele recebe números,
-combina-os com pesos, adiciona um deslocamento e aplica uma função. A forma central é:
+| Termo | Significado nesta aula |
+|---|---|
+| **parâmetro** | valor ajustado pelo treino, como $W$ e $b$ |
+| **logit / pré-ativação** | valor $Z=XW+b$ antes da ativação |
+| **ativação** | função $\phi$ aplicada ao logit |
+| **forward** | cálculo da entrada até a perda |
+| **backward** | propagação das derivadas em ordem inversa |
+| **gradiente upstream** | derivada recebida de uma operação posterior |
+| **derivada local** | derivada da operação atual em relação a sua entrada |
+| **cache** | intermediários do *forward* guardados para o *backward* |
+| **gradient checking** | comparação entre gradiente analítico e aproximação numérica |
+
+## 1. Intuição: um neurônio é uma função parametrizada
+
+Um neurônio artificial recebe números, combina-os com pesos, adiciona um deslocamento e aplica uma função:
 
 $$
-z = w^Tx+b, \qquad a=\phi(z).
+z=w^\top x+b, \qquad a=\phi(z).
 $$
 
-$z$ é a **pré-ativação**; $a$ é a saída depois da ativação. Os pesos não representam
-“importância” de forma universal. Seu sinal e magnitude dependem de escala, correlação,
-codificação e das outras camadas. O viés permite deslocar a fronteira de decisão: sem ele,
-o hiperplano linear seria forçado a passar pela origem.
+Aqui, $x\in\mathbb{R}^d$ é a entrada, $w\in\mathbb{R}^d$ contém os pesos, $b\in\mathbb{R}$ é o viés, $z$ é a pré-ativação e $a$ é a ativação. Uma perda escalar $L(a,y)$ compara a saída com o alvo $y$.
 
-A palavra “neurônio” é histórica, mas a analogia biológica deve parar cedo. O objeto que
-estudaremos é uma composição diferenciável de álgebra linear e funções não lineares. Essa
-precisão importa: backpropagation não exige imaginar dendritos; exige conhecer dependências,
-derivadas locais e a regra da cadeia.
+A palavra “neurônio” é histórica. A analogia com biologia deve parar cedo: o objeto estudado é uma composição de álgebra linear e funções. *Backpropagation* não exige imaginar dendritos; exige registrar dependências, derivadas locais e shapes.
 
-## Fundamento matemático
+Os pesos também não são “importâncias” universais. Sinal e magnitude dependem de escala, codificação, correlação e das demais operações. O viés desloca a fronteira; sem ele, o hiperplano seria forçado a passar pela origem.
 
-### Transformação afim
+```mermaid
+flowchart LR
+    X[Entrada x] --> A[Produto interno]
+    W[Pesos w] --> A
+    B[Viés b] --> S[Soma]
+    A --> S
+    S -->|z| P[Ativação φ]
+    P -->|a| L[Perda L a, y]
+    Y[Alvo y] --> L
+```
 
-Para $x,w\in\mathbb{R}^d$ e $b\in\mathbb{R}$:
+O fluxo acima é um grafo computacional. O *forward* segue as setas; o *backward* percorre-as ao contrário.
+
+## 2. A transformação afim e suas derivadas locais
+
+Para $x,w\in\mathbb{R}^d$:
 
 $$
 z=\sum_{j=1}^{d}w_jx_j+b.
@@ -54,14 +91,14 @@ $$
 \frac{\partial z}{\partial b}=1.
 $$
 
-Se $a=\phi(z)$ e a loss escalar é $L(a,y)$, a regra da cadeia introduz o gradiente
-upstream $\delta=\partial L/\partial z$:
+Se $a=\phi(z)$ e $L$ é escalar, a regra da cadeia introduz o sinal
 
 $$
-\delta=\frac{\partial L}{\partial a}\frac{\partial a}{\partial z}.
+\delta=\frac{\partial L}{\partial z}
+=\frac{\partial L}{\partial a}\frac{\partial a}{\partial z}.
 $$
 
-Assim:
+Multiplicar a derivada local pelo gradiente recebido produz:
 
 $$
 \frac{\partial L}{\partial w_j}=\delta x_j,\qquad
@@ -69,261 +106,325 @@ $$
 \frac{\partial L}{\partial x_j}=\delta w_j.
 $$
 
-Essas três equações serão reutilizadas em toda camada densa. O backward não é uma fórmula
-mágica separada: é a derivada da operação feita no forward, multiplicada pelo gradiente que
-chega das operações posteriores.
+$\partial L/\partial x$ é importante mesmo quando não atualizamos a entrada. Em uma rede, ele é o gradiente que a operação anterior receberá.
 
-### Forma em lote e shapes
+## 3. Forma vetorizada e contrato de shapes
 
-Adotaremos exemplos nas linhas. Para $X\in\mathbb{R}^{n\times d}$,
-$W\in\mathbb{R}^{d\times 1}$ e $b\in\mathbb{R}^{1}$:
+Adotaremos exemplos nas linhas. Para um lote com $n$ exemplos e $d$ atributos:
 
-$$
-Z=XW+b,\qquad A=\phi(Z).
-$$
+| Objeto | Shape | Papel |
+|---|---:|---|
+| $X$ | $(n,d)$ | lote de entradas |
+| $W$ | $(d,1)$ | pesos de um neurônio |
+| $b$ | $(1,)$ | viés compartilhado no lote |
+| $Z=XW+b$ | $(n,1)$ | um logit por exemplo |
+| $A=\phi(Z)$ | $(n,1)$ | uma ativação por exemplo |
+| $dZ$ | $(n,1)$ | gradiente em relação aos logits |
 
-Se $dZ\in\mathbb{R}^{n\times1}$ contém $\partial L/\partial Z$, então:
-
-$$
-dW=X^TdZ,\qquad db=\sum_{i=1}^{n}dZ_i,\qquad dX=dZW^T.
-$$
-
-Confira shapes antes de confiar no resultado:
-
-- $X^TdZ$: $(d\times n)(n\times1)=(d\times1)$, igual a $W$;
-- $db$: soma sobre exemplos, shape $(1,)$, igual a $b$;
-- $dZW^T$: $(n\times1)(1\times d)=(n\times d)$, igual a $X$.
-
-Dividir por $n$ depende de onde a média foi definida. Se a loss já é a média do lote,
-$dZ$ deve carregar esse fator. Duplicar ou esquecer $1/n$ muda a escala do gradiente.
-
-## Explicação passo a passo
-
-### 1. Declare o instante e o significado da entrada
-
-Antes do cálculo, cada componente de $x$ deve corresponder a informação disponível no
-momento da previsão. Redes neurais não corrigem data leakage; elas podem explorá-lo com
-ainda mais eficiência.
-
-### 2. Calcule a pré-ativação
-
-Faça o produto interno e some o viés. Guarde $x$, $w$ e $z$: o backward precisará desses
-intermediários. Em redes profundas, esse conjunto de valores guardados é chamado de cache.
-
-### 3. Aplique uma ativação
-
-Sem não linearidade, empilhar camadas afins continua sendo uma única transformação afim:
-$W_2(W_1x+b_1)+b_2=\widetilde W x+\widetilde b$. A ativação é o que permite construir
-fronteiras não lineares. Nesta aula usaremos sigmoid para probabilidade binária e ReLU para
-expor a derivada local; ambas serão estudadas em profundidade na Aula 04.
-
-### 4. Calcule uma loss escalar
-
-A loss conecta previsão e objetivo. Para regressão, uma escolha didática é
-$L=\tfrac12(a-y)^2$. Para classificação binária com $p=\sigma(z)$, usamos:
+No *backward*:
 
 $$
-L=-\left[y\log p+(1-y)\log(1-p)\right].
+dW=X^\top dZ,\qquad
+db=\sum_{i=1}^{n}dZ_i,\qquad
+dX=dZ W^\top.
 $$
 
-Com sigmoid seguida de binary cross-entropy, a derivada em relação ao logit simplifica para
-$\partial L/\partial z=p-y$. A simplificação deve ser derivada, não apenas memorizada.
+O produto $X^\top dZ$ tem shape $(d,n)(n,1)=(d,1)$, igual a $W$. A soma de $dZ$ sobre exemplos preserva uma dimensão e resulta em $(1,)$. Por fim, $(n,1)(1,d)=(n,d)$, igual a $X$.
 
-### 5. Propague o gradiente para trás
+O fator $1/n$ depende da definição da perda. Se a perda é a média do lote, ele pode estar em $dZ$. Dividir também em $dW$ e $db$ reduziria o gradiente duas vezes; esquecê-lo faria a taxa efetiva crescer com o lote.
 
-Comece em $L$ e percorra as operações na ordem inversa. Multiplique gradiente upstream pela
-derivada local. Em cada etapa, anote valor, shape e interpretação. Quando chegar a $w$ e $b$,
-você terá a direção de maior crescimento local da loss.
+## 4. Exemplo resolvido: ReLU e perda quadrática
 
-### 6. Atualize os parâmetros
-
-Gradient descent move no sentido oposto:
+Considere
 
 $$
-w\leftarrow w-\eta\frac{\partial L}{\partial w},\qquad
-b\leftarrow b-\eta\frac{\partial L}{\partial b}.
+x=[2,-1]^\top,\quad w=[0{,}5,-2]^\top,\quad b=-0{,}5,
 $$
 
-Uma redução imediata da loss é um teste útil, não uma garantia. Learning rate grande pode
-ultrapassar a região em que a aproximação local do gradiente é informativa.
+ativação $a=\operatorname{ReLU}(z)=\max(0,z)$, alvo $y=1{,}5$ e perda $L=\tfrac12(a-y)^2$.
 
-## Exemplo numérico
-
-Considere $x=[2,-1]^T$, $w=[0{,}5,-2]^T$, $b=-0{,}5$, ativação ReLU e target $y=1{,}5$.
-
-**Forward:**
+### Forward
 
 $$
-z=0{,}5\cdot2+(-2)\cdot(-1)-0{,}5=2{,}5,
+z=0{,}5(2)+(-2)(-1)-0{,}5=2{,}5,
 $$
 
 $$
-a=\max(0,z)=2{,}5,\qquad L=\frac12(2{,}5-1{,}5)^2=0{,}5.
+a=2{,}5,\qquad L=\frac12(2{,}5-1{,}5)^2=0{,}5.
 $$
 
-**Backward:** como $z>0$, $\partial a/\partial z=1$ e
-$\partial L/\partial a=a-y=1$. Logo, $\delta=1$:
+### Backward
+
+Como $z>0$, $\partial a/\partial z=1$. Além disso, $\partial L/\partial a=a-y=1$. Logo, $\delta=1$:
 
 $$
-\frac{\partial L}{\partial w}=\delta x=[2,-1]^T,
-\quad \frac{\partial L}{\partial b}=1,
-\quad \frac{\partial L}{\partial x}=\delta w=[0{,}5,-2]^T.
+\frac{\partial L}{\partial w}=[2,-1]^\top,\quad
+\frac{\partial L}{\partial b}=1,\quad
+\frac{\partial L}{\partial x}=[0{,}5,-2]^\top.
 $$
 
-Com $\eta=0{,}1$, $w'=[0{,}3,-1{,}9]^T$ e $b'=-0{,}6$. No mesmo exemplo:
+### Uma atualização
+
+Com $\eta=0{,}1$:
 
 $$
-z'=0{,}3\cdot2+(-1{,}9)(-1)-0{,}6=1{,}9,
-\qquad L'=\frac12(1{,}9-1{,}5)^2=0{,}08.
+w'=[0{,}3,-1{,}9]^\top,\qquad b'=-0{,}6.
 $$
 
-A loss caiu de $0{,}5$ para $0{,}08$. Refaça o caso com $z<0$: a derivada ReLU será zero,
-e esse neurônio não receberá sinal por esse exemplo.
+Então $z'=1{,}9$ e $L'=0{,}08$. A perda caiu de $0{,}5$ para $0{,}08$. A aproximação de primeira ordem previa $\Delta L\approx-0{,}6$, enquanto a mudança real foi $-0{,}42$: o gradiente descreve uma vizinhança, não toda a superfície.
 
-## Aplicação em IA
+Se $z<0$, a derivada da ReLU é zero nessa região. Nesse exemplo, o sinal deixa de atravessar a ativação. No ponto $z=0$, a função não é diferenciável; bibliotecas adotam uma convenção, frequentemente derivada zero.
 
-Uma camada de classificação em um sistema real calcula logits antes de convertê-los em
-probabilidades. Em detecção de fraude, por exemplo, cada logit combina uma representação da
-transação. O threshold operacional não faz parte do neurônio: é uma decisão posterior baseada
-em custo e risco. Em LLMs, a mesma operação afim aparece repetidamente nas projeções de
-atenção e nos blocos feed-forward; o M5 prepara a álgebra que será reutilizada no M8.
+## 5. Classificação binária sem instabilidade numérica
 
-Também é importante distinguir explicação matemática de interpretação de negócio. Um peso
-positivo em uma rede profunda não significa diretamente que uma feature “aumenta a fraude”:
-ativações, interações e outras camadas mediam o efeito.
+Para produzir probabilidade, usamos a sigmoid:
 
-## Laboratório Python
+$$
+p=\sigma(z)=\frac{1}{1+e^{-z}}.
+$$
 
-O laboratório treina um neurônio sigmoide para a porta OR. Todo gradiente é manual e o
-gradient check usa diferenças centrais. Não há autograd.
+A entropia cruzada binária por exemplo é
 
-```python
-import numpy as np
+$$
+\ell(p,y)=-[y\log p+(1-y)\log(1-p)].
+$$
 
-X = np.array([[0., 0.],
-              [0., 1.],
-              [1., 0.],
-              [1., 1.]])
-y = np.array([[0.], [1.], [1.], [1.]])
+Derivando:
 
-def sigmoid(z):
-    # Forma estável para valores positivos e negativos.
-    out = np.empty_like(z)
-    pos = z >= 0
-    out[pos] = 1.0 / (1.0 + np.exp(-z[pos]))
-    exp_z = np.exp(z[~pos])
-    out[~pos] = exp_z / (1.0 + exp_z)
-    return out
+$$
+\frac{\partial \ell}{\partial p}
+=-\frac{y}{p}+\frac{1-y}{1-p},
+\qquad
+\frac{\partial p}{\partial z}=p(1-p).
+$$
 
-def forward(X, W, b):
-    Z = X @ W + b
-    P = sigmoid(Z)
-    return Z, P
+Ao multiplicar e simplificar:
 
-def bce(P, y):
-    eps = 1e-12
-    P = np.clip(P, eps, 1 - eps)
-    return -np.mean(y * np.log(P) + (1 - y) * np.log(1 - P))
+$$
+\frac{\partial \ell}{\partial z}=p-y.
+$$
 
-def loss_and_grads(X, y, W, b):
-    _, P = forward(X, W, b)
-    loss = bce(P, y)
-    # BCE(sigmoid(z)) -> dL/dZ = (P - y) / n
-    dZ = (P - y) / len(X)
-    dW = X.T @ dZ
-    db = dZ.sum(axis=0)
-    dX = dZ @ W.T
-    return loss, {"W": dW, "b": db, "X": dX}
+Para uma média sobre $n$ exemplos, $dZ=(P-y)/n$.
 
-rng = np.random.default_rng(42)
-W = rng.normal(0, 0.1, size=(2, 1))
-b = np.zeros(1)
+### Por que calcular BCE a partir dos logits
 
-# Gradient check antes do treino.
-loss, grads = loss_and_grads(X, y, W, b)
-h = 1e-5
-numeric = np.zeros_like(W)
-for idx in np.ndindex(W.shape):
-    old = W[idx]
-    W[idx] = old + h
-    plus = loss_and_grads(X, y, W, b)[0]
-    W[idx] = old - h
-    minus = loss_and_grads(X, y, W, b)[0]
-    W[idx] = old
-    numeric[idx] = (plus - minus) / (2 * h)
+Avaliar sigmoid ingênua pode causar *overflow* em $e^{-z}$; calcular $\log(p)$ pode atingir $\log(0)$. Em vez de esconder o problema com *clipping*, usamos a identidade estável
 
-relative_error = np.linalg.norm(numeric - grads["W"]) / (
-    np.linalg.norm(numeric) + np.linalg.norm(grads["W"]) + 1e-12
-)
-print("erro relativo do gradiente:", relative_error)
-assert relative_error < 1e-7
+$$
+\operatorname{BCELogits}(z,y)=
+\max(z,0)-yz+\log(1+e^{-|z|}).
+$$
 
-learning_rate = 0.8
-history = []
-for step in range(2000):
-    loss, grads = loss_and_grads(X, y, W, b)
-    W -= learning_rate * grads["W"]
-    b -= learning_rate * grads["b"]
-    history.append(loss)
+O notebook também calcula a sigmoid por ramos. Para $[-1000,0,1000]$, retorna exatamente $[0,0{,}5,1]$ sem avisos numéricos.
 
-_, probabilities = forward(X, W, b)
-print("loss inicial/final:", history[0], history[-1])
-print("W:", W.ravel(), "b:", b)
-print("probabilidades:", probabilities.ravel())
-print("classes:", (probabilities >= 0.5).astype(int).ravel())
-assert np.array_equal((probabilities >= 0.5).astype(int), y.astype(int))
+## 6. Do forward à atualização
+
+O ciclo completo é:
+
+```mermaid
+flowchart TD
+    C[Definir X, y, W, b e shapes] --> F[Forward: Z, P e perda]
+    F --> D[Backward: dZ, dW, db e dX]
+    D --> V{Gradientes finitos e shapes corretos?}
+    V -->|não| E[Interromper e diagnosticar]
+    V -->|sim| U[Atualizar W e b simultaneamente]
+    U --> M[Registrar perda e invariantes]
+    M --> T{Critério de parada?}
+    T -->|não| F
+    T -->|sim| R[Congelar e avaliar]
 ```
 
-**Entregue:** derivação de $dZ$, $dW$, $db$ e $dX$; tabela de shapes; curva da loss;
-resultado do gradient check; repetição com porta AND; tentativa com XOR e explicação de por
-que um único neurônio linear não a separa.
+O *cache* mínimo guarda valores do *forward* necessários ao *backward*. Atualizações devem ser simultâneas: calcule todos os gradientes com os mesmos parâmetros e só depois altere $W$ e $b$.
 
-## Armadilhas comuns
+## 7. Gradient checking: teste independente da derivação
 
-- chamar $w^Tx$ de transformação linear quando há viés; tecnicamente, $w^Tx+b$ é afim;
-- misturar $z$, $a$ e a previsão final como se fossem o mesmo objeto;
-- omitir shapes e aceitar broadcasting acidental;
-- somar o gradiente do lote quando a loss foi definida como média, ou dividir duas vezes;
-- aplicar sigmoid ingênua e gerar overflow em $e^{-z}$;
-- calcular BCE com $\log(0)$ sem estabilidade numérica;
-- confundir peso com causalidade ou importância global;
-- verificar apenas se o código roda, sem gradient checking;
-- usar XOR como evidência de falha de treinamento, quando é limitação de representação de um único neurônio linear.
+Para um parâmetro $\theta_j$, diferenças centrais aproximam:
 
-## Exercícios
+$$
+g_j^{\text{num}}=
+\frac{L(\theta_j+h)-L(\theta_j-h)}{2h}.
+$$
 
-1. Derive $\partial z/\partial w$, $\partial z/\partial b$ e $\partial z/\partial x$ usando diferenciais.
-2. Derive $\partial L/\partial z=p-y$ para sigmoid seguida de binary cross-entropy.
-3. Recalcule o exemplo numérico com $x=[-1,2]$, $w=[1,0{,}5]$ e dois valores de viés.
-4. Mostre algebricamente que duas camadas afins sem ativação equivalem a uma camada afim.
-5. Altere o laboratório para a porta AND e compare os parâmetros aprendidos.
-6. Tente treinar XOR. Plote os quatro pontos e explique a impossibilidade geométrica.
-7. Introduza de propósito um erro de transpose em $dW$; use shapes para diagnosticá-lo.
-8. Faça gradient check também de $b$ e de uma coordenada de $X$.
-9. Compare diferenças progressivas e centrais para $h\in\{10^{-2},10^{-4},10^{-6},10^{-8}\}$.
-10. Escreva uma seção curta: “o que o sucesso na porta OR não prova sobre redes profundas”.
+Compare com $g_j^{\text{ana}}$ usando, por exemplo,
+
+$$
+e_j=\frac{|g_j^{\text{ana}}-g_j^{\text{num}}|}
+{\max(1,|g_j^{\text{ana}}|,|g_j^{\text{num}}|)}.
+$$
+
+Diferenças centrais custam duas avaliações por parâmetro. São apropriadas para testes pequenos, não para treinar a rede. O passo $h$ também importa: grande demais gera erro de truncamento; pequeno demais amplifica cancelamento em ponto flutuante.
+
+No laboratório, o maior erro relativo em $W$ e $b$ foi $3{,}668\times10^{-12}$ com $h=10^{-5}$. Uma derivada direcional independente verificou $dX$ com erro absoluto $1{,}953\times10^{-11}$.
+
+> Um *gradient check* aprovado mostra concordância local entre código analítico e cálculo numérico. Ele não prova que a perda representa o negócio, que os dados não vazam futuro ou que o modelo generaliza.
+
+## 8. O que o neurônio consegue representar
+
+### OR: uma fronteira linear basta
+
+Na porta OR, somente $(0,0)$ pertence à classe zero. Uma reta pode separar esse ponto dos outros três. Com seed fixa, taxa $0{,}8$ e 2.500 passos, o laboratório obteve:
+
+| Resultado | Valor confirmado |
+|---|---:|
+| BCE final | $0{,}00458755$ |
+| acurácia nos quatro casos | $1{,}0$ |
+| $p(0,0)$ | $0{,}010160$ |
+| $p(0,1)$ | $0{,}995939$ |
+| $p(1,0)$ | $0{,}995939$ |
+| $p(1,1)$ | $1{,}000000$ |
+
+Esses quatro pontos constituem a população lógica completa. O resultado verifica implementação e capacidade representacional; não estima generalização para uma população externa.
+
+### XOR: uma contraprova geométrica
+
+Em XOR, os positivos são $(0,1)$ e $(1,0)$; os negativos são $(0,0)$ e $(1,1)$. Vértices opostos compartilham classe, então nenhuma reta os separa perfeitamente. Em 20 inicializações, o melhor neurônio alcançou acurácia $0{,}5$ e BCE mínima $\log 2\approx0{,}69314718$.
+
+Não é evidência de um otimizador “fraco”. É limite da família $w^\top x+b$.
+
+### Duas camadas afins ainda são uma
+
+Sem ativação entre camadas:
+
+$$
+(XW_1+b_1)W_2+b_2
+=X(W_1W_2)+(b_1W_2+b_2).
+$$
+
+Definindo $\widetilde W=W_1W_2$ e $\widetilde b=b_1W_2+b_2$, recuperamos uma única camada afim. O laboratório confirmou as duas expressões com erro máximo $3{,}553\times10^{-15}$. A não linearidade é o ingrediente que impede esse colapso.
+
+## 9. Conexões com sistemas reais e IA
+
+- **Classificação:** a última camada produz logits; a decisão por *threshold* é uma política posterior, orientada por custo e risco.
+- **Redes profundas:** $dX$ transmite crédito ou responsabilidade às camadas anteriores.
+- **CNNs:** a operação muda de produto matricial para convolução, mas mantém *forward*, cache, gradiente upstream e derivadas locais.
+- **Transformers e LLMs:** projeções de consultas, chaves, valores e blocos *feed-forward* incluem transformações afins em lote.
+- **Pesquisa:** gradient checking é evidência de correção de implementação, distinta de validade estatística e validade externa.
+- **Produção:** estabilidade numérica, shapes explícitos e testes de invariantes reduzem falhas silenciosas, mas não substituem monitoramento.
+
+## 10. Armadilhas e limites
+
+| Armadilha | Sintoma | Correção |
+|---|---|---|
+| chamar $Wx+b$ de linear | confusão sobre o papel do viés | usar “transformação afim” |
+| misturar $z$, $a$ e classe | derivada aplicada ao objeto errado | nomear cada etapa |
+| broadcasting acidental | resultado executa com shape incorreto | fazer asserts de shapes |
+| dividir pelo lote duas vezes | aprendizado muito lento | localizar o $1/n$ na derivação |
+| esquecer a média | gradiente depende do tamanho do lote | alinhar redução da perda e backward |
+| sigmoid ingênua | overflow para logits extremos | implementação por ramos |
+| BCE após probabilidade arredondada | $\log(0)$ e gradiente perdido | BCE estável com logits |
+| atualizar $W$ antes de calcular $db$ | gradientes de estados diferentes | atualizar após todo o backward |
+| interpretar peso como causalidade | narrativa sem identificação causal | limitar-se à função ajustada |
+| culpar o treino pelo XOR | buscas intermináveis de taxa/seed | auditar capacidade representacional |
+
+Outros limites: um exemplo lógico não demonstra robustez; reduzir a perda de treino não garante generalização; e um gradiente correto ainda pode ser numericamente mal condicionado em redes profundas.
+
+## 11. Laboratório reproduzível
+
+O [notebook da Aula 01](../notebooks/01-neuronio-artificial-laboratorio.ipynb) usa apenas NumPy e Matplotlib. Ele contém 27 células, sendo 13 de código, seed fixa e dados explícitos.
+
+Você executará:
+
+1. o exemplo escalar com ReLU;
+2. sigmoid estável e BCE com logits;
+3. *forward* e *backward* vetorizados;
+4. gradient checking de $W$, $b$ e $X$;
+5. varredura do passo numérico $h$;
+6. treinamento e fronteira da porta OR;
+7. contraprova com XOR;
+8. colapso de duas camadas afins;
+9. sete contratos automáticos consolidados.
+
+### Checklist antes de considerar o laboratório concluído
+
+- [ ] Executei todas as células em ordem, sem avisos.
+- [ ] Consigo explicar cada dimensão da tabela de shapes.
+- [ ] Sei onde entra o fator $1/n$.
+- [ ] O gradient check cobre pesos, viés e entrada.
+- [ ] Não usei *autograd* nem framework de deep learning.
+- [ ] Distingo classificação perfeita da OR de generalização estatística.
+- [ ] Expliquei XOR por geometria, não por tentativa de hiperparâmetros.
+- [ ] Consigo colapsar duas transformações afins algebricamente.
+
+## 12. Exercícios com respostas comentadas
+
+### 1. Derivação por diferenciais
+
+Derive os gradientes de $z=w^\top x+b$.
+
+**Resposta:** $dz=x^\top dw+w^\top dx+db$. Comparando coeficientes, $\partial z/\partial w=x$, $\partial z/\partial x=w$ e $\partial z/\partial b=1$. Multiplique todos por $\delta=\partial L/\partial z$.
+
+### 2. Sigmoid com BCE
+
+Por que $\partial\ell/\partial z=p-y$?
+
+**Resposta:** multiplique $[-y/p+(1-y)/(1-p)]$ por $p(1-p)$. Os termos se reduzem a $p-y$. Para perda média, divida por $n$.
+
+### 3. Shapes
+
+Se $X$ tem shape $(32,10)$ e há um neurônio, quais são os shapes de $W$, $Z$, $dW$ e $dX$?
+
+**Resposta:** $(10,1)$, $(32,1)$, $(10,1)$ e $(32,10)$, respectivamente.
+
+### 4. Gradiente do viés
+
+Por que $db$ soma sobre exemplos?
+
+**Resposta:** o mesmo $b$ participa de todos os $z_i$. Pela regra da cadeia, as contribuições de todos os caminhos até $b$ se somam.
+
+### 5. Passo numérico
+
+Por que reduzir $h$ indefinidamente não melhora o gradient check?
+
+**Resposta:** diferenças menores reduzem truncamento até certo ponto; depois, subtrair números quase iguais perde dígitos significativos e o arredondamento domina.
+
+### 6. Atualização de primeira ordem
+
+Para $\Delta\theta=-\eta\nabla L$, qual mudança local esperamos?
+
+**Resposta:** $\Delta L\approx-\eta\|\nabla L\|^2\le0$. Isso vale localmente; taxa grande pode sair dessa região.
+
+### 7. XOR
+
+Mais épocas garantem solução perfeita de XOR com um neurônio?
+
+**Resposta:** não. Mais épocas não mudam a família de fronteiras lineares. É preciso criar representação não linear, tema que será desenvolvido ao construir o MLP.
+
+### 8. Duas camadas sem ativação
+
+Mostre como colapsá-las.
+
+**Resposta:** use associatividade: $(XW_1+b_1)W_2+b_2=X(W_1W_2)+(b_1W_2+b_2)$. Os termos entre parênteses são novos peso e viés.
+
+### 9. ReLU negativa
+
+O que acontece ao gradiente quando $z<0$?
+
+**Resposta:** como a derivada local é zero, o gradiente para $w$, $b$ e $x$ vindo desse caminho também zera. Em redes, persistência desse estado pode produzir unidades “mortas”.
+
+## Resumo
+
+- Um neurônio compõe transformação afim, ativação e perda.
+- O *backward* multiplica gradiente upstream por derivadas locais.
+- $dW=X^\top dZ$, $db=\sum dZ$ e $dX=dZW^\top$ devem respeitar shapes.
+- Sigmoid por ramos e BCE com logits evitam instabilidade nos extremos.
+- Diferenças centrais auditam gradientes, mas não validam o problema.
+- OR é linearmente separável; XOR não é.
+- Camadas afins empilhadas sem não linearidade colapsam em uma só.
 
 ## Critério de domínio
 
-Você domina a aula quando, sem consultar o material:
+Você domina a aula quando consegue desenhar o grafo computacional, executar o exemplo sem consultar o texto, derivar os três gradientes, implementar a versão vetorizada, justificar o fator da média, realizar gradient checking e explicar os limites de XOR e de camadas afins empilhadas.
 
-- desenha o grafo $x,w,b\rightarrow z\rightarrow a\rightarrow L$;
-- explica cada símbolo e shape;
-- deriva $dW$, $db$ e $dX$ a partir do gradiente upstream;
-- implementa forward, loss e backward em NumPy;
-- obtém erro relativo de gradient check menor que $10^{-7}$ neste exemplo;
-- explica por que uma atualização pequena tende a reduzir a loss;
-- prevê o comportamento para ReLU negativa e para XOR;
-- distingue evidência de execução, correção do gradiente e capacidade de generalização.
+## Referências técnicas
 
-## Referências principais
-
-- Goodfellow, Bengio e Courville — [Deep Learning](https://www.deeplearningbook.org/), cap. 6.
-- Simon J. D. Prince — [Understanding Deep Learning](https://udlbook.github.io/udlbook/), cap. 3.
-- Stanford CS231n — [Neural Networks and Backpropagation](https://cs231n.stanford.edu/slides/2020/lecture_4.pdf).
-- Dive into Deep Learning — [Multilayer Perceptrons](https://d2l.ai/chapter_multilayer-perceptrons/mlp.html) e [Forward/Backward Propagation](https://d2l.ai/chapter_multilayer-perceptrons/backprop.html).
+- Goodfellow, Bengio e Courville — [Deep Learning](https://www.deeplearningbook.org/), capítulo 6.
+- Stanford CS231n — [Backpropagation, Intuitions](https://cs231n.github.io/optimization-2/) e [Neural Networks Part 1](https://cs231n.github.io/neural-networks-1/).
+- Dive into Deep Learning — [Forward Propagation, Backward Propagation, and Computational Graphs](https://d2l.ai/chapter_multilayer-perceptrons/backprop.html).
+- Prince — [Understanding Deep Learning](https://udlbook.github.io/udlbook/), capítulo 3.
 - Rumelhart, Hinton e Williams (1986) — [Learning representations by back-propagating errors](https://www.nature.com/articles/323533a0).
+
+Referências verificadas em **9 de setembro de 2026**. As três primeiras são recursos oficiais ou livros abertos; o artigo de 1986 é fonte histórica primária.
 
 ## Próxima aula
 
-**Aula 02 — Perceptron, separação linear e regra de aprendizagem.**
+**Aula 02 — Perceptron e regra de aprendizagem:** separação linear, atualização por erro, convergência e limites.
