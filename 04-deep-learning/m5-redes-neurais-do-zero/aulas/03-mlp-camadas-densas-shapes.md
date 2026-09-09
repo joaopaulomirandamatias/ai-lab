@@ -89,8 +89,8 @@ com o contrato:
 O eixo interno da multiplicação deve coincidir:
 
 $$
-(n,\cancel{d_{\text{in}}})
-(\cancel{d_{\text{in}}},d_{\text{out}})
+\underbrace{(n,d_{\text{in}})}_{X}
+\underbrace{(d_{\text{in}},d_{\text{out}})}_{W}
 \longrightarrow(n,d_{\text{out}}).
 $$
 
@@ -338,7 +338,7 @@ W^{[1]}=
 \begin{bmatrix}
 1&1\\
 1&1
-\end{bmatrix},qquad
+\end{bmatrix},\qquad
 b^{[1]}=
 \begin{bmatrix}
 -0{,}5&-1{,}5
@@ -363,7 +363,7 @@ $$
 Logo,
 
 $$
-W^{[2]}=\begin{bmatrix}1\\-2\end{bmatrix},qquad
+W^{[2]}=\begin{bmatrix}1\\-2\end{bmatrix},\qquad
 b^{[2]}=\begin{bmatrix}-0{,}5\end{bmatrix}.
 $$
 
