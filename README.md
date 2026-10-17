@@ -106,3 +106,7 @@ Detalhe de cada um em [`00-plano/gates.md`](00-plano/gates.md).
 4. Abrir o diário: [`diario/README.md`](diario/README.md).
 
 E a regra que mais economiza tempo: **uma fonte principal por tema, o resto é consulta.**
+
+## Segurança de IA — OWASP 2026
+
+Para componentes que utilizem LLM, RAG, MCP ou agentes, aplicar a [baseline de segurança de IA (OWASP LLM e Agentic Top 10 2026)](12-ai-governance/OWASP_AI_SECURITY_2026.md). Os controles são **requisitos e gates de revisão**, não alegações de conformidade ou implantação. Não liberar funcionalidades críticas sem evidência e autorização humana.
